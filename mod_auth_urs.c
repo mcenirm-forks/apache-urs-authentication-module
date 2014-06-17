@@ -381,7 +381,7 @@ int auth_urs_check_user_id(request_rec *r)
         || dconf->authorization_group == NULL)
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
-            "UrsAuth: Not configured for location %s", r->uri );
+            "UrsAuth: Not configured correctly for location %s", r->uri );
     
         return HTTP_INTERNAL_SERVER_ERROR;
     }
@@ -514,11 +514,14 @@ int auth_urs_check_user_id(request_rec *r)
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Expired cookie %s", dconf->authorization_group );
             }
+            
+            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                "UrsAuth: Sub/HEAD request - not authorized" );
 
             return (HTTP_UNAUTHORIZED);
         }
 
-        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: No cookie" );
 
 
@@ -602,7 +605,7 @@ int auth_urs_check_user_id(request_rec *r)
     r->user = apr_pstrdup(r->pool, apr_table_get(session_data, "uid"));
 
     ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r, 
-        "UrsAuth: Access granted to %s with session %s", r->user, cookie );
+        "UrsAuth: Access granted to %s for user %s", r->uri, r->user);
 
     
     elements = apr_table_elts(dconf->user_profile_env);

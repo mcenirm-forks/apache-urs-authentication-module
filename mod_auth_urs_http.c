@@ -75,12 +75,12 @@ int http_post(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* 
         
     ssl_disconnect(r, connection);
 
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Request submission status = %d", status );
 
     if( status == HTTP_OK )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: Body: %s", *body );
     }
     
@@ -131,12 +131,12 @@ int http_get(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* h
         
     ssl_disconnect(r, connection);
 
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Request submission status = %d", status );
 
     if( status == HTTP_OK )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: Body: %s", *body );
     }
     
@@ -287,7 +287,7 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
      */
     request = apr_psprintf(r->pool, "%s\r\n%s", request, body );
 
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Sending request: %s", request );
         
     if( ssl_write(r, c, request, strlen(request)) <= 0 )
@@ -350,7 +350,7 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
      */
     request = apr_psprintf(r->pool, "%s\r\n", request );
 
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Sending request: %s", request );
         
     if( ssl_write(r, c, request, strlen(request)) <= 0 )
@@ -423,7 +423,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
             
             bytes_read = ssl_read(r, c, end, freespace);
             if( bytes_read <= 0 ) return HTTP_INTERNAL_SERVER_ERROR;
-            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Read packet. size = %d", bytes_read );
             
             end += bytes_read;
@@ -445,7 +445,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                 
                 *start = 0;
              
-                ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+                ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Header: [%s]", line );
                     
                 if( start == line )
@@ -485,9 +485,6 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                     ++value;
                     while( *value == ' ') ++value;
 
-                    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
-                        "UrsAuth: Parsed header: [%s][%s]", key, value );
-                    
                     apr_table_setn(headers, key, value);
                 }
                 
@@ -529,7 +526,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
         {
             /* The server is chunking - currently not supported */
 
-            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: Server response is chunked - not supported!" );
 
             return HTTP_INTERNAL_SERVER_ERROR;
@@ -564,7 +561,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
             {
                 return HTTP_INTERNAL_SERVER_ERROR;
             }
-            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Read packet. size = %d", bytes_read );
 
             end += bytes_read;
@@ -576,7 +573,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
         }
     }
 
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Read body: %s", start );
     *body = start;
 

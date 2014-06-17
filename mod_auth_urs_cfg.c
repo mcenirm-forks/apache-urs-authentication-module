@@ -62,7 +62,7 @@ static int auth_urs_post_config(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, s
     
     
     conf = ap_get_module_config(s->module_config, &auth_urs_module );
-    ap_log_perror( APLOG_MARK, APLOG_NOTICE, 0, p,
+    ap_log_perror( APLOG_MARK, APLOG_INFO, 0, p,
         "UrsAuth: Post Config check" );    
         
     if( conf->session_store_path == NULL )

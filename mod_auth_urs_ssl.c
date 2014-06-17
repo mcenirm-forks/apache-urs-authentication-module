@@ -49,7 +49,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
 
     if( port == 0 ) port = DEFAULT_HTTPS_PORT;
     
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Creating secure connection to %s on port %d", host, port );
 
     /* 
@@ -60,7 +60,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     handle = socket(AF_INET, SOCK_STREAM, 0);
     if( handle == -1 )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Unable to create a socket - possible descriptor exhaustion?" );
 
         return NULL;
@@ -73,7 +73,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
 
     if( connect(handle,(struct sockaddr *) &server, sizeof(struct sockaddr)) == -1 )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to connect to %s on port %d", host, port );
         
         return NULL;
@@ -104,7 +104,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     
     if( c->ssl_context == NULL )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to create context for SSL" );
         ssl_disconnect(r, c);
         
@@ -116,7 +116,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     c->ssl_handle = SSL_new(c->ssl_context);
     if( c->ssl_handle == NULL )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to create handle for SSL" );
         ssl_disconnect(r, c);
         
@@ -128,7 +128,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     
     if( !SSL_set_fd(c->ssl_handle, c->socket) )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to set handle for SSL" );
         ssl_disconnect(r, c);
         
@@ -139,7 +139,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     
     if( SSL_connect(c->ssl_handle) != 1 )
     {
-        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to establish SSL session" );
         ssl_disconnect(r, c);
         
@@ -210,7 +210,7 @@ int ssl_write(request_rec *r, ssl_connection *c, char *buffer, int bufsize )
         sent = SSL_write(c->ssl_handle, buffer, bufsize);
         if( sent <= 0 )
         { 
-            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: SSL write failed - returned exit code %d", sent );
         }
     }

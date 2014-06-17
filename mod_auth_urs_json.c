@@ -185,7 +185,7 @@ int json_has_member(json* json, const char* name )
 
 
 /************************************
- * External methods
+ * Internal methods
  ************************************/
 
 
