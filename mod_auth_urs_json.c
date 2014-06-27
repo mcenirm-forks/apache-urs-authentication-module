@@ -56,10 +56,10 @@ typedef struct json_value
 
 
 /**
- * Internal structure use to represent a json object.
+ * Internal structure used to represent a json object.
  * Pointers to this structure are exposed externally,
  * but the structure details are not.
- * This structure simple contains a hash table of 
+ * This structure simply contains a hash table of 
  * josn_value objects.
  */
 struct json
