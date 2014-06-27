@@ -106,17 +106,17 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     }
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Authentication redirect for auth group %s: %s", cookie_name, r->uri );
-    
+
     
     /*
-     * We expect this request to provide both the URS code and
-     * return our state. If either of these are missing, we
-     * consider the request malformed.
+     * URS is expected to return our 'state' query parameter, regardless
+     * of whether the authentication was successful or not.
      */    
-    code = get_query_param(r, "code");
     state = get_query_param(r, "state");
-    if( code == NULL || state == NULL )
+    if( state == NULL )
     {
+        /* Assume a bad link or hack */
+        
         return HTTP_FORBIDDEN;
     }
 
@@ -164,6 +164,47 @@ int auth_urs_post_read_request_redirect(request_rec *r)
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Misconfiguration for %s", url_str );
         return HTTP_BAD_REQUEST;
+    }
+
+    
+    /*
+     * Check the result of the user authentication. We expect to find
+     * either a 'code' or a 'error' query parameter.
+     */    
+    code = get_query_param(r, "code");
+    if( code == NULL )
+    {
+        const char* error;
+        
+        /*
+         * There was no code, so we expect an error. We handle
+         * the 'access_denied' as a special case, redirecting
+         * to a configured URL.
+         */
+        error = get_query_param(r, "error"); 
+        if( error != NULL && strcmp(error, "access_denied") == 0
+                && dconf->access_error_url != NULL )
+        {
+            /*
+             * This is the case when the user denies access to the application
+             * (in the case of an interactive user-agent), or has not already
+             * granted access (in the case of a script based user-agent).
+             */
+            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+                "UrsAuth: Access denied to user profile" );
+
+            apr_table_setn(r->err_headers_out, "Location", dconf->access_error_url);
+            return HTTP_MOVED_TEMPORARILY;
+        }
+
+
+        /* Otherwise, just assume a bad link or hack */
+
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: Incomplete/malformed redirection request received for authorization group %s",
+                dconf->authorization_group );
+        
+        return HTTP_FORBIDDEN;
     }
 
 

@@ -609,6 +609,28 @@ static const char *set_user_profile_env(cmd_parms *cmd, void *config, const char
 }
 
 
+/**
+ * Callback used by apache to set the access error URL when it 
+ * encounters our UrsAccessErrorUrl configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_access_error_url(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->access_error_url = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Access error URL set to %s", 
+        conf->access_error_url );
+    
+    return NULL;
+}
+
+
 
 /**
  * Module configuration records.
@@ -692,6 +714,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the sub-process environment from the user profile" ),
+
+    AP_INIT_TAKE1( "UrsAccessErrorUrl",
+                    set_access_error_url,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the access error redirection URL" ),
 
     { NULL }
 };

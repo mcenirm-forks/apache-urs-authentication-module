@@ -118,7 +118,11 @@ typedef struct auth_urs_dir_config_t
      *
      */
     apr_table_t* user_profile_env;
-    
+
+    /**
+     * The access error redirection URL
+     */
+    char*       access_error_url;
      
    
 } auth_urs_dir_config;
