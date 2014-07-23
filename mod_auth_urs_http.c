@@ -3,7 +3,7 @@
  *
  * This module contains functions for sending and receiving
  * HTTP requests over a secure socket.
- * 
+ *
  * Author: Peter Smith
  */
 
@@ -72,7 +72,7 @@ int http_post(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* 
         apr_table_clear(headers);
         status = http_read_response(r, connection, headers, body );
     }
-        
+
     ssl_disconnect(r, connection);
 
     ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
@@ -83,7 +83,7 @@ int http_post(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* 
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: Body: %s", *body );
     }
-    
+
     return status;
 }
 
@@ -128,7 +128,7 @@ int http_get(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* h
         apr_table_clear(headers);
         status = http_read_response(r, connection, headers, body );
     }
-        
+
     ssl_disconnect(r, connection);
 
     ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
@@ -139,15 +139,15 @@ int http_get(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* h
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: Body: %s", *body );
     }
-    
+
     return status;
 }
 
 
 /**
  * Extracts the value of a query parameter from the client request.
- * 
- * @param r a pointer to the request structure for the 
+ *
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param parameter the name of the query parameter to extract.
  * @return a pointer to the query parameter value, or NULL
@@ -159,7 +159,7 @@ char* get_query_param( request_rec* r, const char* parameter )
     const char* end;
 
     if( r->args == NULL ) return NULL;
-    
+
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Searching for [%s] in [%s]", parameter, r->args );
 
@@ -176,7 +176,7 @@ char* get_query_param( request_rec* r, const char* parameter )
         end = start + strlen(start);
     }
     if( start == end ) return NULL;
-    
+
     return apr_pstrndup(r->pool, start, (end - start));
 }
 
@@ -186,7 +186,7 @@ char* get_query_param( request_rec* r, const char* parameter )
  * Extracts the value of a named cookie.
  *
  *
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param cookie_name the name of the cookie extract.
  * @return a pointer to the cookie value, or NULL
@@ -199,11 +199,11 @@ char* get_cookie( request_rec* r, const char* cookie_name )
     const char* end;
 
     /* If there are no cookies, abort */
-        
+
     if( all_cookies == NULL ) return NULL;
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Cookie string: %s", all_cookies );
-    
+
     /*
      * We have some cookies. Look to see if we can find
      * the right one. Note that we must avoid situations where
@@ -225,12 +225,81 @@ char* get_cookie( request_rec* r, const char* cookie_name )
         end = start + strlen(start);
     }
     if( start == end ) return NULL;
-    
+
     return apr_pstrndup(r->pool, start, (end - start));
 }
 
 
 
+/**
+ * Encode a URL string.
+ * This function maps reserved characters in a string to their % equivalent.
+ *
+ * @param r the client request
+ * @param uri the URI to encode.
+ * @return a pointer to the encoded string
+ */
+const char* url_encode(request_rec *r, const char* uri)
+{
+    /* Reserved characters that must be encoded*/
+
+    static const char* reserved_chars = "!#$&'()*+,/:;=?@[]";
+
+    const char* p;
+    int len = 0;
+    char* encoded;
+
+
+    /*
+     * First, find out how many characters we need to map. We use this to
+     * determine how long the new string will be. If we have no encoding to
+     * do, we can just return the original string.
+     */
+    p = uri;
+
+    while( *p )
+    {
+        if( strchr(reserved_chars, *p) != NULL )
+        {
+            len += 3;
+        }
+        ++p;
+    }
+    if( len == 0 ) return uri;
+
+    len += strlen(uri);
+
+
+    /*
+     * Allocate memory for the encoded uri, and encode it.
+     */
+    encoded = apr_pcalloc(r->pool, len + 1);
+
+    p = uri;
+    len = 0;
+
+    while( *p )
+    {
+        if( strchr(reserved_chars, *p) == NULL )
+        {
+            encoded[len++] = *p;
+        }
+        else
+        {
+            len += sprintf(encoded + len, "\%%%2X", *p);
+        }
+        ++p;
+    }
+
+    return encoded;
+}
+
+
+
+
+/************************************
+ * Internal methods
+ ************************************/
 
 /**
  * Performs an http post type request and reads the response.
@@ -249,13 +318,12 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
 {
     char* request;
 
-
     /*
      * Create the initial post header block. Note that we use
      * HTTP/1.0 here, instead of HTTP/1.1. This is to prevent
      * the server from returning use chunked data, which is
      * VERY much harder to read and parse robustly.
-     */    
+     */
     request = apr_psprintf(r->pool,
         "POST %s HTTP/1.0\r\n"
         "Host: %s\r\n"
@@ -263,7 +331,7 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
         "Content-Type: application/x-www-form-urlencoded\r\n"
         "Content-Length: %d\r\n",
         path,  server->hostname, (int) strlen(body));
-    
+
     /*
      * Append any additional headers.
      */
@@ -272,7 +340,7 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
         const apr_array_header_t* elements;
         const apr_table_entry_t*  entry;
         int   i;
-        
+
         elements = apr_table_elts(headers);
         entry = (const apr_table_entry_t*) elements->elts;
 
@@ -281,7 +349,7 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
             request = apr_psprintf(r->pool, "%s%s: %s\r\n", request, entry[i].key, entry[i].val );
         }
     }
-    
+
     /*
      * Finalize the request.
      */
@@ -289,12 +357,12 @@ static int http_post_request(request_rec *r, ssl_connection *c, apr_uri_t* serve
 
     ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Sending request: %s", request );
-        
+
     if( ssl_write(r, c, request, strlen(request)) <= 0 )
     {
         return HTTP_SERVICE_UNAVAILABLE;
     }
-   
+
     return HTTP_OK;
 }
 
@@ -320,7 +388,7 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
      * Create the initial request header block.This is to prevent
      * the server from returning use chunked data, which is
      * VERY much harder to read and parse robustly.
-     */    
+     */
     request = apr_psprintf(r->pool,
         "GET %s HTTP/1.0\r\n"
         "Host: %s\r\n"
@@ -335,7 +403,7 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
         const apr_array_header_t* elements;
         const apr_table_entry_t*  entry;
         int   i;
-        
+
         elements = apr_table_elts(headers);
         entry = (const apr_table_entry_t*) elements->elts;
 
@@ -344,7 +412,7 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
             request = apr_psprintf(r->pool, "%s%s: %s\r\n", request, entry[i].key, entry[i].val );
         }
     }
-    
+
     /*
      * Finalize the request.
      */
@@ -352,12 +420,12 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
 
     ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Sending request: %s", request );
-        
+
     if( ssl_write(r, c, request, strlen(request)) <= 0 )
     {
         return HTTP_SERVICE_UNAVAILABLE;
     }
-   
+
     return HTTP_OK;
 }
 
@@ -382,12 +450,12 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
     char*   start;
     char*   end;
     char*   line;
-    
+
     const char* p;
 
     int     header_done = 0;
     int     body_done = 0;
-    
+
     int     content_length = 0;
     int     status = HTTP_INTERNAL_SERVER_ERROR;
 
@@ -402,30 +470,30 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
     end = buffer;
     line = buffer;
 
-    
+
     /*
      * Start a loop read/process loop or the headers. This is complicated
-     * by the fact that the server may not send all the data as a 
+     * by the fact that the server may not send all the data as a
      * single packet, yet we do not wish to end up with a blocking
      * read.
      */
     while( !header_done )
     {
         /* If we have no more data left, read some more */
-        
+
         if( start == end )
         {
             int freespace;
             int bytes_read;
-            
+
             freespace = 16535 - (end - buffer);
             if( freespace == 0 ) return HTTP_INTERNAL_SERVER_ERROR;
-            
+
             bytes_read = ssl_read(r, c, end, freespace);
             if( bytes_read <= 0 ) return HTTP_INTERNAL_SERVER_ERROR;
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Read packet. size = %d", bytes_read );
-            
+
             end += bytes_read;
             *end = '\0';
         }
@@ -442,16 +510,16 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                  * it (we return pointers into the read buffer for the
                  * various header strings).
                  */
-                
+
                 *start = 0;
-             
+
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Header: [%s]", line );
-                    
+
                 if( start == line )
                 {
                     /* This is a blank line, and signifies the end of the header */
-                    
+
                     header_done = 1;
                 }
                 else if( strncmp(line, "HTTP/1", 6) == 0 )
@@ -459,7 +527,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                     /*
                      * This is the status line, so extract the status.
                      */
-                    
+
                     char* p = line + 9;
                     if( !apr_isdigit(*p) ) return HTTP_INTERNAL_SERVER_ERROR;
                     status = atoi(p);
@@ -472,9 +540,9 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                      */
                     char* key = line;
                     char* value;
-                    
+
                     while( *key == ' ') ++key;
-                    
+
                     value = key;
                     while( *value != ':' )
                     {
@@ -487,7 +555,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
 
                     apr_table_setn(headers, key, value);
                 }
-                
+
                 ++start;
                 line = start + 1;
             }
@@ -501,26 +569,26 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
      * or the caller wishes to read the body, as indicated by a non-null
      * location to store the body pointer.
      */
-    
+
     if( status != HTTP_OK || body == NULL ) return status;
 
-    
-    /* 
+
+    /*
      * Now we must read the body. If we have a content length, we can use this to
      * determine exactly how much to read. Otherwise,we have to read until the
      * connection closes and the read returns 0 (unless it is 'chunked', but we
      * do not currently support that).
-     * 
+     *
      * At this point, 'start' should point to the first character of the response
      * body, and 'end' to the last character read (these may be equal).
      */
     p = apr_table_get(headers, "Content-Length");
     if( p != NULL ) content_length = atoi(p);
-    
+
     if( content_length == 0 )
     {
         /* No content length, look for transfer encoding */
-        
+
         p = apr_table_get(headers, "Transfer-Encoding");
         if( p != NULL && strncasecmp(p, "chunked", 7) == 0 )
         {
@@ -532,18 +600,18 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
             return HTTP_INTERNAL_SERVER_ERROR;
         }
     }
-    
+
     while( !body_done )
     {
         int bytes_read = end - start;
-        
+
         if( content_length == 0 || bytes_read < content_length )
         {
             int freespace;
-            
+
             freespace = 16535 - (end - buffer);
             if( freespace == 0 ) return HTTP_INTERNAL_SERVER_ERROR;
-            
+
             bytes_read = ssl_read(r, c, end, freespace);
             if( bytes_read == 0 && content_length == 0 )
             {
@@ -552,7 +620,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
                  * to indicate the we have done reading the body, and set the
                  * content length header ourself.
                  */
-            
+
                 body_done = 1;
                 apr_table_setn(headers,
                     "Content-length", apr_psprintf(r->pool, "%d", bytes_read));
@@ -579,8 +647,6 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
 
     return status;
 }
-
-
 
 
 

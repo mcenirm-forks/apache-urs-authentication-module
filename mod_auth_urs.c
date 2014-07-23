@@ -13,7 +13,7 @@
  *
  * Session files are managed by the module. Curently, an external cron
  * should be used to remove old session files at least once per-day.
- * The sesson files are located in the directory specified by 
+ * The sesson files are located in the directory specified by
  * UrsSessionStorePath, and should exceed the age specified by
  * UrsIdleTimeout or UrsActiveTimeout before being cleaned up.
  *
@@ -69,19 +69,19 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 {
     auth_urs_svr_config*    sconf = NULL;
     auth_urs_dir_config*    dconf = NULL;
-    
+
     const char*     code = NULL;
     const char*     state = NULL;
     const char*     cookie_name = NULL;
     const char*     cookie_value = NULL;
-    
+
     request_rec*    sub_req;
     const char*     access_token;
     const char*     endpoint;
     json*           user_profile;
     long            current_time;
     apr_table_t*    session_data;
-    
+
     const apr_array_header_t* elements;
 
     char*           url_str;
@@ -101,22 +101,22 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     if( cookie_name == NULL )
     {
         /* This is not a redirection point */
-        
+
         return DECLINED;
     }
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Authentication redirect for auth group %s: %s", cookie_name, r->uri );
 
-    
+
     /*
      * URS is expected to return our 'state' query parameter, regardless
      * of whether the authentication was successful or not.
-     */    
+     */
     state = get_query_param(r, "state");
     if( state == NULL )
     {
         /* Assume a bad link or hack */
-        
+
         return HTTP_FORBIDDEN;
     }
 
@@ -126,18 +126,18 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * We are going to use this to generate a sub request for the
      * purposes of extract the appropriate per-directory
      * configuration information we need for the token exchange.
-     * Note that we do not explicitly call ap_destroy_sub_req for 
+     * Note that we do not explicitly call ap_destroy_sub_req for
      * the sub request - the main request does that when its pool
      * gets destroyed.
      */
     url_str = apr_palloc(r->pool, strlen(state) + 1);
     apr_base64_decode(url_str, state);
-    
+
     if( apr_uri_parse(r->pool, url_str, &url) != APR_SUCCESS )
     {
         return HTTP_BAD_REQUEST;
     }
-    
+
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Subrequest processing for %s", url_str );
     sub_req = ap_sub_req_lookup_uri(url.path, r, NULL);
@@ -160,28 +160,28 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     if( strcmp(cookie_name, dconf->authorization_group) != 0 )
     {
         /* These should match all the time */
-        
+
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Misconfiguration for %s", url_str );
         return HTTP_BAD_REQUEST;
     }
 
-    
+
     /*
      * Check the result of the user authentication. We expect to find
      * either a 'code' or a 'error' query parameter.
-     */    
+     */
     code = get_query_param(r, "code");
     if( code == NULL )
     {
         const char* error;
-        
+
         /*
          * There was no code, so we expect an error. We handle
          * the 'access_denied' as a special case, redirecting
          * to a configured URL.
          */
-        error = get_query_param(r, "error"); 
+        error = get_query_param(r, "error");
         if( error != NULL && strcmp(error, "access_denied") == 0
                 && dconf->access_error_url != NULL )
         {
@@ -203,7 +203,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Incomplete/malformed redirection request received for authorization group %s",
                 dconf->authorization_group );
-        
+
         return HTTP_FORBIDDEN;
     }
 
@@ -230,14 +230,14 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * Populate basic session data, including the IP address of the
      * remote host, and the current time. Note that in some cases
      * we use 'apr_table_set' so that the table will make its own
-     * copy of the data using the pool that was used to originally 
+     * copy of the data using the pool that was used to originally
      * create the table (the connection pool). In other cases, we
      * use 'apr_table_setn' when we are using constants, or have to
      * allocate string data for other reasons.
      */
     current_time = apr_time_sec(apr_time_now());
     session_data = apr_table_make(r->connection->pool, 10);
-    
+
     apr_table_set(session_data, "ip", r->connection->remote_ip);
     apr_table_setn(session_data, "starttime", apr_ltoa(r->connection->pool, current_time));
     apr_table_setn(session_data, "lastupdatetime", apr_ltoa(r->connection->pool, current_time));
@@ -265,8 +265,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
             }
         }
     }
-    
-     
+
+
     /*
      * Generate a unique cookie ID.
      */
@@ -284,7 +284,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * Set the cookie that we use to track the session for this user. We
      * put it in err_headers_out so it is sure to be sent back to the
      * user, even on an internal redirect.
-     * We set the path to '/', so it will be returned for all accesses to 
+     * We set the path to '/', so it will be returned for all accesses to
      * this server. This is not ideal, but without additional
      * configuration, we have no way of knowing exactly what paths it
      * should be valid for - for example, the first request for a protected
@@ -316,7 +316,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Redirecting to: %s", url_str );
-    
+
     apr_table_setn(r->err_headers_out, "Location", url_str);
 
     return HTTP_MOVED_TEMPORARILY;
@@ -326,12 +326,12 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
 /**
  * Early request processing hook designed to provide a logout
- * capability. This is intended to be transparent to the 
+ * capability. This is intended to be transparent to the
  * request processing, so this method always returns the
  * DECLINE status.
  *
  * @param r a pointer to the request_rec structure
- * @return DECLINED 
+ * @return DECLINED
  */
 int auth_urs_post_read_request_logout(request_rec *r)
 {
@@ -350,10 +350,10 @@ int auth_urs_post_read_request_logout(request_rec *r)
      */
     cookie_name = get_query_param(r, "urslogout");
     if( cookie_name == NULL ) return DECLINED;
-    
-    
+
+
     /*
-     * This is a logout request. The value of the urslogout query 
+     * This is a logout request. The value of the urslogout query
      * parameter is the application group (i.e. the cookie name).
      * We just go ahead and destroy the session.
      */
@@ -379,10 +379,10 @@ int auth_urs_post_read_request_logout(request_rec *r)
 /**
  * Checks to see whether URS OAuth2 type authentication should
  * be performed on the request. This is a hook callback method
- * invoked by apache as part of the request processing, and 
+ * invoked by apache as part of the request processing, and
  * performs the intial redirection as well as token exchange.
- * 
- * @param r a pointer to the request structure for the 
+ *
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @return DECLINED or HTTP status
  */
@@ -406,8 +406,8 @@ int auth_urs_check_user_id(request_rec *r)
     {
         return DECLINED;
     }
-    
-    
+
+
     /*
      * Get our configuration structures and verify that we have
      * been configured properly for this location.
@@ -423,7 +423,7 @@ int auth_urs_check_user_id(request_rec *r)
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Not configured correctly for location %s", r->uri );
-    
+
         return HTTP_INTERNAL_SERVER_ERROR;
     }
 
@@ -431,7 +431,7 @@ int auth_urs_check_user_id(request_rec *r)
 
     /*
      * Everything looks set, and we need to check the authentication
-     * state of this user. Look for our auth cookie. 
+     * state of this user. Look for our auth cookie.
      */
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Checking for cookie/session" );
@@ -449,7 +449,7 @@ int auth_urs_check_user_id(request_rec *r)
          * Check to see if we have saved the session data in the
          * connection on a previous request (only works for persistent
          * connections, but can also be invoked on non-persistent
-         * connections in the case of a sub-request). 
+         * connections in the case of a sub-request).
          * Note that this is really a bit of a hack - 'notes'
          * is an apr_table_t, designed for strings. While our session
          * data are strings, the table we store it in is not. We store
@@ -479,11 +479,11 @@ int auth_urs_check_user_id(request_rec *r)
             }
         }
 
-        
+
         /*
          * If we loaded the session data, then verify it. If verification
          * fails, or we failed to load the session at all, then
-         * clean  up. 
+         * clean up.
          */
         if( session_data == NULL || !validate_session(r, cookie, session_data) )
         {
@@ -514,7 +514,7 @@ int auth_urs_check_user_id(request_rec *r)
      * We don't (or no longer) have a valid cookie. We cannot let this
      * request through, so we redirect or reject it, depending upon
      * the specifics of the request.
-     */    
+     */
     if( cookie == NULL )
     {
         char*  url;
@@ -525,7 +525,7 @@ int auth_urs_check_user_id(request_rec *r)
         /*
          * If this is a subrequest, we cannot redirect the user to
          * authenticate, so at this point we simple return UNAUTHORIZED.
-         * This means that a module such as autoindex may or may not 
+         * This means that a module such as autoindex may or may not
          * display the directory in a listing, depending upon the current
          * authentication state. Same goes for HEAD requests.
          * If a session was previously expired, we tell the browser to
@@ -535,12 +535,12 @@ int auth_urs_check_user_id(request_rec *r)
         {
             /*
              * If we previously expired a session, tell the browser to
-             * expire the cookie. This is not really neccessary, since 
+             * expire the cookie. This is not really neccessary, since
              * an old session cookie will be ignored, but in the case
              * of browsing a directory structure (via mod_autoindex),
              * this can create a lot of sub-requests, each of which
              * will require testing of the session cookie (a file op),
-             * and performance is important. 
+             * and performance is important.
              * For non sub/HEAD requests, this is not an issue, since
              * it will go on to establish a new session.
              */
@@ -555,7 +555,7 @@ int auth_urs_check_user_id(request_rec *r)
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Expired cookie %s", dconf->authorization_group );
             }
-            
+
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Sub/HEAD request - not authorized" );
 
@@ -567,7 +567,7 @@ int auth_urs_check_user_id(request_rec *r)
 
 
         /*
-         * Currently, we can only handle GET requests at 
+         * Currently, we can only handle GET requests at
          * initial authentication (otherwise we would potentially have
          * to record too much information).
          */
@@ -577,57 +577,59 @@ int auth_urs_check_user_id(request_rec *r)
                 "UrsAuth: Not a GET request - forbidden" );
             return HTTP_FORBIDDEN;
         }
-        
- 
+
+
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Redirecting to URS for authentication" );
 
         /*
          * No code, so this is an initial contact and we must redirect
          * the user to URS for authentication. We must record the original
-         * request so we can redirect the client back there afterwards.
+         * request URL so we can redirect the client back there afterwards.
          * First reconstruct the original URL.
          */
         if( ap_is_default_port(ap_get_server_port(r), r) )
         {
             url = apr_psprintf(r->pool, "%s://%s%s",
-                ap_get_server_protocol(r->server), ap_get_server_name(r), 
+                ap_get_server_protocol(r->server), ap_get_server_name(r),
                 r->unparsed_uri);
         }
         else
         {
             url = apr_psprintf(r->pool, "%s://%s:%d%s",
-                ap_get_server_protocol(r->server), ap_get_server_name(r), 
+                ap_get_server_protocol(r->server), ap_get_server_name(r),
                 ap_get_server_port(r), r->unparsed_uri);
         }
-            
-            
+
+
         /*
-         * Now encode the base64 encode the URL
+         * Now base64 encode the URL
          */
         buffer = apr_palloc(r->pool, strlen(url) * 2);
         buflen = apr_base64_encode(buffer, url, strlen(url));
         --buflen; /* Return value includes null terminator in length */
 
         /* Chop off any trailing '=' which would cause problems when encoding */
-        
+
         if( buffer[buflen - 1] == '=' ) --buflen;
         if( buffer[buflen - 1] == '=' ) --buflen;
         buffer[buflen] = '\0';
 
 
         /*
-         * Now construct the authentication redirection URL, including all
-         * our OAuth2 paramaters, plus the clients ultimate URL base 64 encoded
-         * into the 'state' query parameter.
+         * Construct the URL and query parameters for the authentication redirection URL.
+         * We must url encode the query parameters
          */
         buffer = apr_psprintf(r->pool,
-            "%s://%s%s?client_id=%s&response_type=code&redirect_uri=%s://%s%s&state=%s",
+            "%s://%s%s?splash=false&client_id=%s&response_type=code&redirect_uri=%s\%%3A\%%2F\%%2F%s%s&state=%s",
             sconf->urs_auth_server.scheme, sconf->urs_auth_server.hostinfo,
-            sconf->urs_auth_path, dconf->client_id,
-            dconf->redirect_url.scheme, dconf->redirect_url.hostinfo,  dconf->redirect_url.path,
+            sconf->urs_auth_path,
+            url_encode(r, dconf->client_id),
+            dconf->redirect_url.scheme, url_encode(r, dconf->redirect_url.hostinfo),
+            url_encode(r, dconf->redirect_url.path),
             buffer );
-            
+
+
         apr_table_setn(r->err_headers_out, "Location", buffer);
 
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
@@ -645,10 +647,10 @@ int auth_urs_check_user_id(request_rec *r)
      */
     r->user = apr_pstrdup(r->pool, apr_table_get(session_data, "uid"));
 
-    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r, 
+    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
         "UrsAuth: Access granted to %s for user %s", r->uri, r->user);
 
-    
+
     elements = apr_table_elts(dconf->user_profile_env);
     if( elements->nelts > 0 )
     {
@@ -662,7 +664,7 @@ int auth_urs_check_user_id(request_rec *r)
             const char* value;
             const char* s_name =  entry[i].key;
             const char* e_name = entry[i].val;
-            
+
             value = apr_table_get(session_data, s_name);
             if( value != NULL )
             {
@@ -671,7 +673,7 @@ int auth_urs_check_user_id(request_rec *r)
         }
     }
 
-    
+
     return OK;
 }
 
@@ -713,11 +715,11 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
         apr_psprintf(r->pool, "BASIC %s", dconf->authorization_code) );
 
     body = apr_psprintf(r->pool,
-        "grant_type=authorization_code&code=%s&redirect_uri=%s://%s%s",
-        get_query_param(r, "code"),
+        "grant_type=authorization_code&code=%s&redirect_uri=%s\%%3A\%%2F\%%2F%s%s",
+        url_encode(r, get_query_param(r, "code")),
         dconf->redirect_url.scheme,
-        dconf->redirect_url.hostinfo,
-        dconf->redirect_url.path );
+        url_encode(r, dconf->redirect_url.hostinfo),
+        url_encode(r, dconf->redirect_url.path) );
 
     status = http_post(r, &sconf->urs_auth_server, sconf->urs_token_path, headers, &body);
     if( status != HTTP_OK )
@@ -743,7 +745,7 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
     /*!!! Potential security problem */
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Received json: %s", body );
-    
+
     if( !json_has_member(json, "access_token" ) )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
@@ -756,10 +758,10 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
             "UrsAuth: No endpoint returned from URS" );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-    
+
     *access_token = json_get_member_string(json, "access_token" );
     *endpoint = json_get_member_string(json, "endpoint" );
-    
+
     return HTTP_OK;
 }
 
@@ -783,14 +785,14 @@ static int retrieve_user_profile(
     json** profile )
 {
     auth_urs_svr_config*    sconf = NULL;
-    
+
     apr_table_t*            headers;
     char*                   body;
     int                     status;
 
 
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    
+
     /*
      * Submit the request to the server to retrieve the user profile.
      */
@@ -805,8 +807,8 @@ static int retrieve_user_profile(
             "UrsAuth: Retrieve profile failed with status %d", status );
         return status;
     }
-    
-    
+
+
     /*
      * Parse the resulting json
      */
@@ -828,7 +830,7 @@ static int retrieve_user_profile(
 
 
 /**
- * Validates session data for completeness, expiration, and security. 
+ * Validates session data for completeness, expiration, and security.
  *
  * @param r a pointer to the current request
  * @param cookie the name of the session file
@@ -838,11 +840,11 @@ static int retrieve_user_profile(
 static int validate_session(request_rec *r, const char* cookie, apr_table_t* session_data )
 {
     auth_urs_dir_config*    dconf;
-    
+
     long    current_time;
-    
-    
-    
+
+
+
     /*
      * We have a valid session. Check the data to make sure the
      * basic info is there.
@@ -856,8 +858,8 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
             "Session incomplete for %s", cookie );
         return 0;
     }
-    
-    
+
+
     /*
      * Verify the IP address parts if configured
      */
@@ -867,10 +869,10 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
         const char* real_ip = apr_table_get(session_data, "ip");
         const char* fake_ip = r->connection->remote_ip;
         int i;
-        
+
         for( i = 0; i < dconf->check_ip_octets; ++i )
         {
-            
+
             if( strtol(real_ip, (char**) &real_ip, 0) != strtol(fake_ip, (char**) &fake_ip, 0) )
             {
                 /*
@@ -885,15 +887,15 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
             ++fake_ip;
         }
     }
-    
-    
-    
+
+
+
     /*
      * Check that the session has not exceeded the configured
      * time limits on total duration, or inactivity.
      */
     current_time = apr_time_sec(apr_time_now());
-    
+
     if( dconf->active_timeout > 0 )
     {
         long time_value = apr_atoi64(apr_table_get(session_data, "starttime"));
@@ -904,7 +906,7 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
             return 0;
         }
     }
-    
+
     if( dconf->idle_timeout > 0 )
     {
         long time_value = apr_atoi64(apr_table_get(session_data, "lastupdatetime"));
@@ -925,14 +927,14 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
         {
             apr_table_set(session_data, "lastupdatetime",
                 apr_psprintf(r->pool, "%ld", current_time) );
-                
+
             write_urs_session(r, cookie, session_data);
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "Session lastupdatetime touched for %s", cookie );
         }
     }
-    
-    
+
+
     return 1;
 }
 
@@ -942,7 +944,7 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
  * Replaces a cookie if it exists, adds it if it does not.
  *
  *
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param cookies the cookie string (my contain 0 or more cookies)
  * @param cookie_name the name of the cookie to update
@@ -962,8 +964,8 @@ static char* replace_cookie( request_rec* r, const char* cookies, const char* co
         start = apr_psprintf(r->pool, "%s=%s", cookie_name, cookie_value);
         return start;
     }
-    
-    
+
+
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Replacing %s=%s in %s", cookie_name, cookie_value, cookies );
 
@@ -1001,7 +1003,7 @@ static char* replace_cookie( request_rec* r, const char* cookies, const char* co
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: New cookie string: %s", start );
 
-    
+
     return start;
 }
 

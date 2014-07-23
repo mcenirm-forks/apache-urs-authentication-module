@@ -51,7 +51,7 @@ typedef struct auth_urs_svr_config_t
      *
      */
     apr_table_t* redirection_map;
-    
+
 } auth_urs_svr_config;
 
 
@@ -67,17 +67,17 @@ typedef struct auth_urs_dir_config_t
     /**
      * Used as the name of the session cookie. This is based upon
      * the per-directory 'UrsAuthGroup' configuration, and permits
-     * authentication of groups of applications on a single 
+     * authentication of groups of applications on a single
      * server.
      */
     char*       authorization_group;
-    
+
     /**
      * The client ID assigned when the application was registered
      * for this particular location.
      */
     char*       client_id;
-    
+
     /**
      * The authorization code to be passed to the server. This
      * code embeds the password, so whatever file it resides in
@@ -89,14 +89,14 @@ typedef struct auth_urs_dir_config_t
      * The application redirection URL
      */
     apr_uri_t   redirect_url;
-    
+
     /**
      * The idle timeout on a session. If a session has not
      * been used for this amount of time, it will be destroyed,
      * (forcing re-authentication). Set to 0 to disable.
      */
     long        idle_timeout;
-     
+
     /**
      * The timeout on an active session. Set to 0 to
      * disable. This destroys a session after the given
@@ -105,10 +105,10 @@ typedef struct auth_urs_dir_config_t
      * like 12 hours (43200) or 24 hours (86400).
      */
     long        active_timeout;
-    
+
     /**
      * The number of parts of the IP4 address octets to check
-     * as part of session verification. 0 disables. 
+     * as part of session verification. 0 disables.
      */
     int         check_ip_octets;
 
@@ -123,8 +123,8 @@ typedef struct auth_urs_dir_config_t
      * The access error redirection URL
      */
     char*       access_error_url;
-     
-   
+
+
 } auth_urs_dir_config;
 
 
@@ -149,12 +149,12 @@ int auth_urs_post_read_request_redirect(request_rec* r);
 
 /**
  * Early request processing hook designed to provide a logout
- * capability. This is intended to be transparent to the 
+ * capability. This is intended to be transparent to the
  * request processing, so this method always returns the
  * DECLINE status.
  *
  * @param r a pointer to the request_rec structure
- * @return DECLINED 
+ * @return DECLINED
  */
 int auth_urs_post_read_request_logout(request_rec* r);
 
@@ -163,10 +163,10 @@ int auth_urs_post_read_request_logout(request_rec* r);
 /**
  * Checks to see whether URS OAuth2 type authentication should
  * be performed on the request. This is a hook callback method
- * invoked by apache as part of the request processing, and 
+ * invoked by apache as part of the request processing, and
  * performs the intial redirection as well as token exchange.
- * 
- * @param r a pointer to the request structure for the 
+ *
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @return DECLINED or HTTP status
  */
@@ -260,7 +260,7 @@ json_type json_get_member_type(json* json, const char* name );
  * Creates a unique cookie ID that can be used as a session
  * reference.
  *
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @return a pointer to the name of a new, unique, session
  */
@@ -270,7 +270,7 @@ const char* create_urs_cookie_id(request_rec *r);
 
 /**
  * Writes session data table to a session file.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -286,7 +286,7 @@ apr_status_t write_urs_session(
 
 /**
  * Reads a session file into a session data table.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -302,7 +302,7 @@ apr_status_t read_urs_session(
 
 /**
  * Deletes a session file.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -319,8 +319,8 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie);
 
 /**
  * Extracts the value of a query parameter from the client request.
- * 
- * @param r a pointer to the request structure for the 
+ *
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param parameter the name of the query parameter to extract.
  * @return a pointer to the query parameter value, or NULL
@@ -335,7 +335,7 @@ char* get_query_param(
  * Extracts the value of a named cookie.
  *
  *
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param cookie_name the name of the cookie extract.
  * @return a pointer to the cookie value, or NULL
@@ -344,6 +344,20 @@ char* get_query_param(
 char* get_cookie(
         request_rec* r,
         const char* cookie_name );
+
+
+/**
+ * Encode a URL string.
+ * This function maps reserved characters in a string to their % equivalent.
+ *
+ * @param r the client request
+ * @param uri the URI to encode.
+ * @return a pointer to the encoded string
+ */
+const char* url_encode(
+        request_rec *r,
+        const char* uri );
+
 
 /**
  * Performs an http post type request and reads the response.
