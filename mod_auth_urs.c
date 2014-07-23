@@ -621,7 +621,7 @@ int auth_urs_check_user_id(request_rec *r)
          * We must url encode the query parameters
          */
         buffer = apr_psprintf(r->pool,
-            "%s://%s%s?splash=false&client_id=%s&response_type=code&redirect_uri=%s\%%3A\%%2F\%%2F%s%s&state=%s",
+            "%s://%s%s?splash=false&client_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
             sconf->urs_auth_server.scheme, sconf->urs_auth_server.hostinfo,
             sconf->urs_auth_path,
             url_encode(r, dconf->client_id),
@@ -715,7 +715,7 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
         apr_psprintf(r->pool, "BASIC %s", dconf->authorization_code) );
 
     body = apr_psprintf(r->pool,
-        "grant_type=authorization_code&code=%s&redirect_uri=%s\%%3A\%%2F\%%2F%s%s",
+        "grant_type=authorization_code&code=%s&redirect_uri=%s%%3A%%2F%%2F%s%s",
         url_encode(r, get_query_param(r, "code")),
         dconf->redirect_url.scheme,
         url_encode(r, dconf->redirect_url.hostinfo),
