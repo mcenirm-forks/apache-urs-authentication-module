@@ -237,14 +237,20 @@ char* get_cookie( request_rec* r, const char* cookie_name )
  *
  * @param r the client request
  * @param uri the URI to encode.
- * @return a pointer to the encoded string
+ * @return a pointer to the encoded string. This can be the same
+ *         string if no encoding is necessary.
  */
 const char* url_encode(request_rec *r, const char* uri)
 {
-    /* Reserved characters that must be encoded*/
-
-    static const char* reserved_chars = "!#$&'()*+,/:;=?@[]";
-
+    /*
+     * Unreserved characters - these do not need to be encoded.
+     * Anything else will be encoded.
+     */
+    static const char* unreserved_chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "abcdefghijklmnopqrstuvwxyz"
+        "0123456789-_.~";
+ 
     const char* p;
     int len = 0;
     char* encoded;
@@ -259,7 +265,7 @@ const char* url_encode(request_rec *r, const char* uri)
 
     while( *p )
     {
-        if( strchr(reserved_chars, *p) != NULL )
+        if( strchr(unreserved_chars, *p) == NULL )
         {
             len += 3;
         }
@@ -280,18 +286,88 @@ const char* url_encode(request_rec *r, const char* uri)
 
     while( *p )
     {
-        if( strchr(reserved_chars, *p) == NULL )
+        if( strchr(unreserved_chars, *p) != NULL )
         {
             encoded[len++] = *p;
         }
         else
         {
-            len += sprintf(encoded + len, "\%%%2X", *p);
+            len += sprintf(encoded + len, "%%%2X", *p);
         }
         ++p;
     }
 
     return encoded;
+}
+
+
+
+/**
+ * Decode a URL string.
+ * This function maps % encoded characters back to their string equivalent
+ *
+ * @param r the client request
+ * @param uri the URI to decode.
+ * @return a pointer to the decoded string.This can be the same
+ *         string if no decoding is necessary.
+ */
+const char* url_decode(request_rec *r, const char* uri)
+{
+    static const char* hex_map = "0123456789ABCDEF";
+    
+    const char* p;
+    int len = 0;
+    char* decoded;
+
+
+    /*
+     * First, find out how many characters we need to map. We use this to
+     * determine how long the new string will be. If we have no decoding to
+     * do, we can just return the original string.
+     */
+    p = uri;
+
+    while( *p )
+    {
+        if( *p == '%' && p[1] && p[2] )
+        {
+            len += 2;
+            p += 2;
+        }
+        ++p;
+    }
+    if( len == 0 ) return uri;
+
+
+
+    /*
+     * Allocate memory for the encoded uri, and encode it. A decoded
+     * string will be shorter than the original, but we just allocate
+     * one the same size.
+     */
+    decoded = apr_pcalloc(r->pool, strlen(uri) + 1);
+
+    p = uri;
+    len = 0;
+
+    while( *p )
+    {
+        if( *p == '%' && apr_isxdigit(p[1]) && apr_isxdigit(p[2]) )
+        {
+            int x = ((strchr(hex_map, apr_toupper(p[1])) - hex_map) << 4) |
+                (strchr(hex_map, apr_toupper(p[2])) - hex_map);
+            
+            decoded[len++] = (char) x;
+            p += 2;
+        }
+        else
+        {
+            decoded[len++] = *p;
+        }
+        ++p;
+    }
+
+    return decoded;
 }
 
 

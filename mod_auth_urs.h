@@ -352,9 +352,24 @@ char* get_cookie(
  *
  * @param r the client request
  * @param uri the URI to encode.
- * @return a pointer to the encoded string
+ * @return a pointer to the encoded string. This can be the same
+ *         string if no encoding is necessary.
  */
 const char* url_encode(
+        request_rec *r,
+        const char* uri );
+
+
+/**
+ * Decode a URL string.
+ * This function maps % encoded characters back to their string equivalent
+ *
+ * @param r the client request
+ * @param uri the URI to decode.
+ * @return a pointer to the decoded string. This can be the same
+ *         string if no decoding is necessary.
+ */
+const char* url_decode(
         request_rec *r,
         const char* uri );
 

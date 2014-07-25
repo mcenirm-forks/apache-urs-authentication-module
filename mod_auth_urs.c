@@ -110,7 +110,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
     /*
      * URS is expected to return our 'state' query parameter, regardless
-     * of whether the authentication was successful or not.
+     * of whether the authentication was successful or not. We must url
+     * decode this first.
      */
     state = get_query_param(r, "state");
     if( state == NULL )
@@ -119,6 +120,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
         return HTTP_FORBIDDEN;
     }
+    state = url_decode(r, state);
 
 
     /*
@@ -603,7 +605,8 @@ int auth_urs_check_user_id(request_rec *r)
 
 
         /*
-         * Now base64 encode the URL
+         * Now base64 encode the URL. We do not do this for security,
+         * just to obscure the fact that we have a URL embedded in a URL.
          */
         buffer = apr_palloc(r->pool, strlen(url) * 2);
         buflen = apr_base64_encode(buffer, url, strlen(url));
@@ -618,7 +621,8 @@ int auth_urs_check_user_id(request_rec *r)
 
         /*
          * Construct the URL and query parameters for the authentication redirection URL.
-         * We must url encode the query parameters
+         * We must url encode the query parameters (even the base64 encoded URL, which can
+         * contain a '/').
          */
         buffer = apr_psprintf(r->pool,
             "%s://%s%s?splash=false&client_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
@@ -627,7 +631,7 @@ int auth_urs_check_user_id(request_rec *r)
             url_encode(r, dconf->client_id),
             dconf->redirect_url.scheme, url_encode(r, dconf->redirect_url.hostinfo),
             url_encode(r, dconf->redirect_url.path),
-            buffer );
+            url_encode(r, buffer) );
 
 
         apr_table_setn(r->err_headers_out, "Location", buffer);
