@@ -86,6 +86,12 @@ typedef struct auth_urs_dir_config_t
     char*       authorization_code;
 
     /**
+     * The name to user for anonymous access. If this is set,
+     * anonymous access is enabled.
+     */
+    char*       anonymous_user;
+
+    /**
      * The application redirection URL
      */
     apr_uri_t   redirect_url;
@@ -111,6 +117,11 @@ typedef struct auth_urs_dir_config_t
      * as part of session verification. 0 disables.
      */
     int         check_ip_octets;
+
+    /**
+     *  Disables the URS Oauth2 splash screen
+     */
+    int         splash_disable;
 
     /**
      * A table of user profile parameters to save in the

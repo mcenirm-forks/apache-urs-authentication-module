@@ -62,7 +62,7 @@ static int auth_urs_post_config(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, s
     
     
     conf = ap_get_module_config(s->module_config, &auth_urs_module );
-    ap_log_perror( APLOG_MARK, APLOG_INFO, 0, p,
+    ap_log_perror( APLOG_MARK, APLOG_NOTICE, 0, p,
         "UrsAuth: Post Config check" );    
         
     if( conf->session_store_path == NULL )
@@ -283,14 +283,109 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
 {
     auth_urs_dir_config* conf = apr_pcalloc( p, sizeof(*conf) );
 
-    ap_log_perror( APLOG_MARK, APLOG_DEBUG, 0, p,
-        "UrsAuth: Initializing module directory configuration");
-
     /*
      * Initialize the user profile sub-process environment
      * map. 
      */
     conf->user_profile_env = apr_table_make(p, 10);
+
+    return conf;
+}
+
+
+
+
+/**
+ * Method used to merge two module directory configurations.
+ *
+ * @param p the pool from which to allocate storage
+ * @path path unused
+ * @return void pointer to the configuration structure
+ */
+static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
+{
+    auth_urs_dir_config* base = b;
+    auth_urs_dir_config* add  = a;
+    auth_urs_dir_config* conf = create_auth_urs_dir_config( p, "merge" );
+
+    char*   s;
+    long    l;
+    int     i;
+
+    const apr_array_header_t* elements;
+
+    /*
+     * Copy the string configuration values
+     */
+    s = (add->authorization_group != NULL) ? add->authorization_group : base->authorization_group;
+    if( s != NULL ) conf->authorization_group = apr_pstrdup(p, s);
+
+    s = (add->client_id != NULL) ? add->client_id : base->client_id;
+    if( s != NULL ) conf->client_id = apr_pstrdup(p, s);
+
+    s = (add->authorization_code != NULL) ? add->authorization_code : base->authorization_code;
+    if( s != NULL ) conf->authorization_code = apr_pstrdup(p, s);
+
+    s = (add->access_error_url != NULL) ? add->access_error_url : base->access_error_url;
+    if( s != NULL ) conf->access_error_url = apr_pstrdup(p, s);
+
+    s = (add->anonymous_user != NULL) ? add->anonymous_user : base->anonymous_user;
+    if( s != NULL ) conf->anonymous_user = apr_pstrdup(p, s);
+
+
+    /*
+     * Copy the numeric configuration values
+     */
+    l = (add->idle_timeout != 0) ? add->idle_timeout : base->idle_timeout;
+    conf->idle_timeout = l;
+
+    l = (add->active_timeout != 0) ? add->active_timeout : base->active_timeout;
+    conf->active_timeout = l;
+
+    i = (add->check_ip_octets != 0) ? add->check_ip_octets : base->check_ip_octets;
+    conf->check_ip_octets = i;
+
+    i = (add->splash_disable != 0) ? add->splash_disable : base->splash_disable;
+    conf->splash_disable = i;
+
+
+    /*
+     * Copy the redirection uri
+     */
+    if( add->redirect_url.is_initialized )
+    {
+        apr_uri_parse(p, apr_uri_unparse(p, &add->redirect_url, 0), &conf->redirect_url);
+    }
+    else if( base->redirect_url.is_initialized )
+    {
+        apr_uri_parse(p, apr_uri_unparse(p, &base->redirect_url, 0), &conf->redirect_url);
+    }
+
+
+    /*
+     * And finally copy any user profile mappings
+     */
+    elements = apr_table_elts(add->user_profile_env);
+    if( elements->nelts == 0 )
+    {
+        elements = apr_table_elts(base->user_profile_env);
+    }
+    
+    if( elements->nelts > 0 )
+    {
+        const apr_table_entry_t*  entry;
+
+        entry = (const apr_table_entry_t*) elements->elts;
+
+        for( i = 0; i < elements->nelts; ++i )
+        {
+            const char* key = entry[i].key;
+            const char* value = entry[i].val;
+
+            apr_table_set(conf->user_profile_env, key, value);
+        }
+    }
+     
 
     return conf;
 }
@@ -333,6 +428,27 @@ static const char *set_authorization_code(cmd_parms *cmd, void *config, const ch
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authentication code set" );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to set the anonymous user when it 
+ * encounters our UrsAllowAnonymous configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_anonymous_user(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->anonymous_user = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Anonymous user = %s", arg );
 
     return NULL;
 }
@@ -543,6 +659,45 @@ static const char *set_active_timeout(cmd_parms *cmd, void *config, const char *
 
 
 /**
+ * Callback used by apache to set the splash screen disable state.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    
+    char* p;
+    
+    /*
+    * Convert to a number and verify.
+    */
+    if( strcasecmp(arg, "true") == 0 || strcasecmp(arg, "yes") == 0 )
+    {
+        conf->splash_disable = 1;
+    }
+    else if( strcasecmp(arg, "false") == 0 || strcasecmp(arg, "no") == 0 )
+    {
+        conf->splash_disable = 0;
+    }
+    else
+    {
+        return apr_psprintf(cmd->pool,
+            "Invalid configuration for UrsSplashDisable %s",
+            arg);
+    }
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Splash screen disable set to %s", arg );
+           
+    return NULL;
+}
+
+
+/**
  * Callback used by apache to set the session ip octet check count.
  *
  * @param cmd pointer to the the command/directive structure
@@ -685,6 +840,12 @@ static const command_rec auth_urs_cmds[] =
                     OR_AUTHCFG,
                     "Set the authorization code for token exchange" ),
 
+    AP_INIT_TAKE1( "UrsAllowAnonymous",
+                    set_anonymous_user,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the user for unauthenticated access" ),
+
     AP_INIT_TAKE1( "UrsRedirectUrl",
                     set_redirect_url,
                     NULL,
@@ -702,6 +863,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the application active timeout" ),
+
+    AP_INIT_TAKE1( "UrsDisableSplash",
+                    set_splash_disable,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Disable URS OAuth2 splash screen" ),
 
     AP_INIT_TAKE1( "UrsIPCheckOctets",
                     set_ip_check_octets,
@@ -766,7 +933,7 @@ module AP_MODULE_DECLARE_DATA auth_urs_module =
 {
     STANDARD20_MODULE_STUFF,
     create_auth_urs_dir_config,
-    NULL, /* directory configuration cannot be inherited */
+    merge_auth_urs_dir_config,
     create_auth_urs_svr_config,
     NULL, /* server configuration cannot be inherited */
     auth_urs_cmds,

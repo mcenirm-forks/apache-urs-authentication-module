@@ -249,6 +249,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * to be part of the subprocess environment must be added.
      */
     elements = apr_table_elts(dconf->user_profile_env);
+
     if( elements->nelts > 0 )
     {
         int i;
@@ -261,7 +262,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
             const char* name = entry[i].key;
             if( json_get_member_type(user_profile, name) == json_string )
             {
-                apr_table_set(session_data, name, json_get_member_string(user_profile, name));
+                const char* value = json_get_member_string(user_profile, name);
+                apr_table_set(session_data, name, value);
             }
         }
     }
@@ -315,7 +317,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * Now redirect the user back to their original location.
      */
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Redirecting to: %s", url_str );
+        "UrsAuth: Authentication complete, redirecting to: %s", url_str );
 
     apr_table_setn(r->err_headers_out, "Location", url_str);
 
@@ -521,6 +523,23 @@ int auth_urs_check_user_id(request_rec *r)
         char*  buffer;
         int    buflen;
 
+        /*
+         * This is a special case. If authenticate has been explicitly
+         * disabled we exit with an OK status. However, none of the URS
+         * environment will have been set up. This feature is provided 
+         * to allow applications sitting behind this module to have a
+         * special resource - such as a home page - that can detect 
+         * whether or not a user is logged in. 
+         */
+        if( dconf->anonymous_user != NULL )
+        {
+            r->user = dconf->anonymous_user;
+            ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
+                "UrsAuth: Access granted to %s for anonymous user %s", r->uri, r->user);
+
+            return OK;
+        }
+
 
         /*
          * If this is a subrequest, we cannot redirect the user to
@@ -621,9 +640,10 @@ int auth_urs_check_user_id(request_rec *r)
          * We must url encode the query parameters
          */
         buffer = apr_psprintf(r->pool,
-            "%s://%s%s?splash=false&client_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
+            "%s://%s%s?%sclient_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
             sconf->urs_auth_server.scheme, sconf->urs_auth_server.hostinfo,
             sconf->urs_auth_path,
+            dconf->splash_disable ? "splash=false&" : "",
             url_encode(r, dconf->client_id),
             dconf->redirect_url.scheme, url_encode(r, dconf->redirect_url.hostinfo),
             url_encode(r, dconf->redirect_url.path),
@@ -652,6 +672,7 @@ int auth_urs_check_user_id(request_rec *r)
 
 
     elements = apr_table_elts(dconf->user_profile_env);
+
     if( elements->nelts > 0 )
     {
         int i;
@@ -666,6 +687,7 @@ int auth_urs_check_user_id(request_rec *r)
             const char* e_name = entry[i].val;
 
             value = apr_table_get(session_data, s_name);
+
             if( value != NULL )
             {
                 apr_table_set(r->subprocess_env, e_name, value);
