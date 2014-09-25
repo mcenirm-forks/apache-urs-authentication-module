@@ -528,10 +528,10 @@ int auth_urs_check_user_id(request_rec *r)
         /*
          * This is a special case. If authenticate has been explicitly
          * disabled we exit with an OK status. However, none of the URS
-         * environment will have been set up. This feature is provided 
+         * environment will have been set up. This feature is provided
          * to allow applications sitting behind this module to have a
-         * special resource - such as a home page - that can detect 
-         * whether or not a user is logged in. 
+         * special resource - such as a home page - that can detect
+         * whether or not a user is logged in.
          */
         if( dconf->anonymous_user != NULL )
         {
@@ -604,9 +604,8 @@ int auth_urs_check_user_id(request_rec *r)
             "UrsAuth: Redirecting to URS for authentication" );
 
         /*
-         * No code, so this is an initial contact and we must redirect
-         * the user to URS for authentication. We must record the original
-         * request URL so we can redirect the client back there afterwards.
+         * We must record the original request URL so we can redirect the client
+         * back there afterwards. This will be stored in the 'state' query parameter.
          * First reconstruct the original URL.
          */
         if( ap_is_default_port(ap_get_server_port(r), r) )
