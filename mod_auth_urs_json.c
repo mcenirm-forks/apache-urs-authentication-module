@@ -1,4 +1,19 @@
 /*
+ * Copyright 2014 NASA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ *
  * mod_auth_urs_json.c: URS OAuth2 Module
  *
  * This module contains JSON parsing code.
@@ -18,7 +33,7 @@
 /*
 
  A typical URS user profile looks like this in json form.
- 
+
 {
     "uid":"memememe",
     "first_name":"Mini",
@@ -50,7 +65,7 @@ typedef struct json_value
 {
     json_type type;
 
-    void*     value; 
+    void*     value;
 
 } json_value;
 
@@ -59,7 +74,7 @@ typedef struct json_value
  * Internal structure used to represent a json object.
  * Pointers to this structure are exposed externally,
  * but the structure details are not.
- * This structure simply contains a hash table of 
+ * This structure simply contains a hash table of
  * josn_value objects.
  */
 struct json
@@ -116,10 +131,10 @@ json* json_parse( apr_pool_t* pool, const char* json_text )
 json_type json_get_member_type(json* json, const char* name )
 {
     json_value* p;
-    
+
     p = (json_value*) apr_hash_get(json->elements, name, strlen(name));
     if( p == NULL ) return json_null;
-    
+
     return p->type;
 }
 
@@ -134,10 +149,10 @@ json_type json_get_member_type(json* json, const char* name )
 const char* json_get_member_string(json* json, const char* name )
 {
     json_value* p;
-    
+
     p = (json_value*) apr_hash_get(json->elements, name, strlen(name));
     if( p == NULL ) return NULL;
-    if( p->type != json_string && 
+    if( p->type != json_string &&
         p->type != json_number &&
         p->type != json_boolean &&
         p->type != json_null )
@@ -159,11 +174,11 @@ const char* json_get_member_string(json* json, const char* name )
 json* json_get_member_object(json* json, const char* name )
 {
     json_value* p;
-    
+
     p = (json_value*) apr_hash_get(json->elements, name, strlen(name));
     if( p == NULL ) return NULL;
     if( p->type != json_object ) return NULL;
-    
+
     return p->value;
 }
 
@@ -201,7 +216,7 @@ static int json_read_string( const char* start, const char** end )
 {
     int escape = 0;
     const char* p = start;
-    
+
     while(1)
     {
         if( *p == '\0') return !OK;
@@ -213,7 +228,7 @@ static int json_read_string( const char* start, const char** end )
 
         ++p;
     }
-    
+
     *end = p;
     return OK;
 }
@@ -232,25 +247,25 @@ static int json_read_number( const char* start, const char** end )
     char*   end_of_number;
     long    l;
     double  d;
-    
-    
+
+
     /*
      * First, try converting it as an integer. If this is successful,
-     * we expect the following character to be whitespace, comma, or 
+     * we expect the following character to be whitespace, comma, or
      * end-brace (according to the JSON grammar).
      */
     l = strtol(start, &end_of_number, 0 );
     if( strchr(" \t\r\n\f\v,}", *end_of_number) == NULL )
     {
         /* Try treating it as a decimal instead */
-        
+
         d = strtod(start, &end_of_number);
     }
-    
+
     if( strchr(" \t\r\n\f\v,}", *end_of_number) == NULL ) return !OK;
-    
+
     *end = end_of_number;
-    
+
     return OK;
 }
 
@@ -270,9 +285,9 @@ static json_value* json_read_array( apr_pool_t* pool, const char* start, const c
     const char*         p = start;
     apr_array_header_t* list;
     int                 i;
-    
-    
-    
+
+
+
     list = apr_array_make(pool, 100, sizeof(json_value));
 
 
@@ -285,30 +300,30 @@ static json_value* json_read_array( apr_pool_t* pool, const char* start, const c
         const char* value_end;
 
         json_value* json_val = apr_array_push(list);
-        
-        
+
+
         if( !json_read_value(pool, json_val, value_start, &value_end) ) return NULL;
         p = value_end;
-           
+
         while( apr_isspace(*p) ) ++p;  /* Skip white space preceding end of member */
         if( *p == '\0' ) return NULL;
-        if( *p == ',' ) ++p;  /* Another value is expected to follow */       
+        if( *p == ',' ) ++p;  /* Another value is expected to follow */
     }
-    
+
     *end = p;
-    
+
     /*
      * Convert the apr array into a regular C array (makes it much
      * easier to deal with).
      */
     json_value* json_array;
-    
+
     json_array = apr_pcalloc(pool, sizeof(json_value) * list->nelts);
     for( i = 0; i < list->nelts; ++i )
     {
         json_array[i] = ((json_value*)list->elts)[i];
     }
-     
+
     return json_array;
 }
 
@@ -332,10 +347,10 @@ static json* json_parse_object( apr_pool_t* pool, const char* start, const char*
 
     /*
      * Find the start of the object
-     */   
+     */
     while( apr_isspace(*p) ) ++p;  /* Skip white space preceding object*/
     if( *p++ != '{' ) return NULL;
-    
+
 
     /*
      * Start parsing members
@@ -348,12 +363,12 @@ static json* json_parse_object( apr_pool_t* pool, const char* start, const char*
         const char* value_end;
 
         json_value* json_val = apr_pcalloc(pool, sizeof(*json_val));
-        
-        
+
+
         while( apr_isspace(*p) ) ++p;  /* Skip white space preceding member name */
         if( *p++ != '"' ) return NULL;
-       
-        
+
+
         /*
          * Found start of member name. Now scan for end. We do not handle embedded
          * double quotes in the name at this point.
@@ -365,10 +380,10 @@ static json* json_parse_object( apr_pool_t* pool, const char* start, const char*
         }
         name_end = p;
         ++p;
-        
+
         while( apr_isspace(*p) ) ++p;  /* Skip white space preceding ':' */
         if( *p++ != ':' ) return NULL;
-        
+
         value_start = p;
         if( !json_read_value(pool, json_val, value_start, &value_end) ) return NULL;
         p = value_end;
@@ -379,15 +394,15 @@ static json* json_parse_object( apr_pool_t* pool, const char* start, const char*
             (name_end - name_start),
             json_val );
 
-            
+
         while( apr_isspace(*p) ) ++p;  /* Skip white space preceding end of member */
         if( *p == '\0' ) return NULL;
-        if( *p == ',' ) ++p;  /* Another member is expected to follow */       
+        if( *p == ',' ) ++p;  /* Another member is expected to follow */
 
     }
-    
+
     *end = p;
-    
+
     return object;
 }
 
@@ -411,13 +426,13 @@ static int json_read_value( apr_pool_t* pool, json_value* json_val, const char* 
     const char* value_end;
 
     while( apr_isspace(*p) ) ++p;  /* Skip white space preceding value */
-       
+
     if( *p == '"' )
     {
         value_start = p + 1;
         if( json_read_string( value_start, &value_end ) != OK ) return 0;
         p = value_end + 1;
-        
+
         json_val->type = json_string;
         json_val->value = apr_pstrndup(pool, value_start, (value_end - value_start));
     }
@@ -458,7 +473,7 @@ static int json_read_value( apr_pool_t* pool, json_value* json_val, const char* 
          */
         json* child = json_parse_object(pool, p, &value_end);
         if( child == NULL ) return 0;
-        
+
         json_val->type = json_object;
         json_val->value = child;
         p = value_end + 1;
@@ -466,12 +481,12 @@ static int json_read_value( apr_pool_t* pool, json_value* json_val, const char* 
     else if( *p == '[' )
     {
         void* array;
-        
+
         value_start = p + 1;
         array = json_read_array( pool, value_start, &value_end );
         if( array == NULL ) return 0;
         p = value_end + 1;
-        
+
         json_val->type = json_array;
         json_val->value = array;
     }
@@ -481,7 +496,7 @@ static int json_read_value( apr_pool_t* pool, json_value* json_val, const char* 
     }
 
     *end = p;
-    
+
     return 1;
 }
 
@@ -493,7 +508,7 @@ static int json_read_value( apr_pool_t* pool, json_value* json_val, const char* 
 
 object
     {}
-    { members } 
+    { members }
 members
     pair
     pair , members
@@ -532,17 +547,17 @@ char
     \n
     \r
     \t
-    \u four-hex-digits 
+    \u four-hex-digits
 number
     int
     int frac
     int exp
-    int frac exp 
+    int frac exp
 int
     digit
     digit1-9 digits
     - digit
-    - digit1-9 digits 
+    - digit1-9 digits
 frac
     . digits
 exp

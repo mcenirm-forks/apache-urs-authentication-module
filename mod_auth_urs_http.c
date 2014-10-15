@@ -1,4 +1,19 @@
 /*
+ * Copyright 2014 NASA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ *
  * mod_auth_urs_http.c: URS OAuth2 Module
  *
  * This module contains functions for sending and receiving
@@ -250,7 +265,7 @@ const char* url_encode(request_rec *r, const char* uri)
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         "abcdefghijklmnopqrstuvwxyz"
         "0123456789-_.~";
- 
+
     const char* p;
     int len = 0;
     char* encoded;
@@ -314,7 +329,7 @@ const char* url_encode(request_rec *r, const char* uri)
 const char* url_decode(request_rec *r, const char* uri)
 {
     static const char* hex_map = "0123456789ABCDEF";
-    
+
     const char* p;
     int len = 0;
     char* decoded;
@@ -356,7 +371,7 @@ const char* url_decode(request_rec *r, const char* uri)
         {
             int x = ((strchr(hex_map, apr_toupper(p[1])) - hex_map) << 4) |
                 (strchr(hex_map, apr_toupper(p[2])) - hex_map);
-            
+
             decoded[len++] = (char) x;
             p += 2;
         }

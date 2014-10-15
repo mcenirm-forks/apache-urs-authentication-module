@@ -1,4 +1,19 @@
 /*
+ * Copyright 2014 NASA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ *
  * mod_auth_urs_ssl.c: URS OAuth2 Module
  *
  * SSL connection handling methods.
@@ -26,7 +41,7 @@ struct ssl_connection
     int      socket;
     SSL*     ssl_handle;
     SSL_CTX* ssl_context;
-    
+
 };
 
 
@@ -48,11 +63,11 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
 
 
     if( port == 0 ) port = DEFAULT_HTTPS_PORT;
-    
+
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Creating secure connection to %s on port %d", host, port );
 
-    /* 
+    /*
      * Allocate a connection structure and create a socket
      * connected to the approriate host
      */
@@ -75,7 +90,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to connect to %s on port %d", host, port );
-        
+
         return NULL;
     }
 
@@ -86,63 +101,63 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
     /*
      Initialize the SSL library (shold not be necessary if
      mod_ssl is enabled).
-    
+
      Register the error strings for libcrypto & libssl
-    
+
        SSL_load_error_strings();
-   
+
      Register the available ciphers and digests
-     
+
        SSL_library_init();
     */
-    
+
 
     /*
      * Allocate context saying we are a client, and using SSL 2 or 3
      */
     c->ssl_context = SSL_CTX_new(SSLv23_client_method());
-    
+
     if( c->ssl_context == NULL )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to create context for SSL" );
         ssl_disconnect(r, c);
-        
+
         return NULL;
     }
-    
+
     /* Create an SSL struct for the connection */
-    
+
     c->ssl_handle = SSL_new(c->ssl_context);
     if( c->ssl_handle == NULL )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to create handle for SSL" );
         ssl_disconnect(r, c);
-        
+
         return NULL;
     }
-    
-    
+
+
     /* Connect the SSL struct to our connection */
-    
+
     if( !SSL_set_fd(c->ssl_handle, c->socket) )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to set handle for SSL" );
         ssl_disconnect(r, c);
-        
+
         return NULL;
     }
-    
+
     /* Initiate SSL handshake */
-    
+
     if( SSL_connect(c->ssl_handle) != 1 )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Failed to establish SSL session" );
         ssl_disconnect(r, c);
-        
+
         return NULL;
     }
 
@@ -159,7 +174,7 @@ ssl_connection *ssl_connect(request_rec *r, const char* host, int port )
 void ssl_disconnect( request_rec *r, ssl_connection *c )
 {
     if( c->socket ) close(c->socket);
-    
+
     if( c->ssl_handle ) SSL_shutdown(c->ssl_handle);
     if( c->ssl_handle ) SSL_free(c->ssl_handle);
     if( c->ssl_context ) SSL_CTX_free(c->ssl_context);
@@ -181,7 +196,7 @@ int ssl_read(request_rec *r, ssl_connection *c, char *buffer, int bufsize)
 {
     int received = SSL_read(c->ssl_handle, buffer, bufsize);
     if( received < 0 )
-    {    
+    {
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: SSL read failed - returned exit code %d", received );
     }
@@ -204,17 +219,17 @@ int ssl_read(request_rec *r, ssl_connection *c, char *buffer, int bufsize)
 int ssl_write(request_rec *r, ssl_connection *c, char *buffer, int bufsize )
 {
     int sent= 0;
-    
+
     if( bufsize > 0 )
     {
         sent = SSL_write(c->ssl_handle, buffer, bufsize);
         if( sent <= 0 )
-        { 
+        {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: SSL write failed - returned exit code %d", sent );
         }
     }
 
-    return sent;    
+    return sent;
 }
 

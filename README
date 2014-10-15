@@ -1,4 +1,24 @@
-To build and install, use apxs:
+Copyright 2014 NASA
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+
+To download source code:
+
+> git clone https://<username>/git.earthdata.nasa.gov/scm/aam/apache-urs-authentication-module.git aam
+
+
+To build and install, use apxs in the source directory:
 
 > apxs -i -c -n mod_auth_urs mod_auth_urs.c mod_auth_urs_cfg.c  \
   mod_auth_urs_session.c mod_auth_urs_ssl.c mod_auth_urs_http.c \

@@ -1,4 +1,19 @@
 /*
+ * Copyright 2014 NASA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ *
  * mod_auth_urs.c: URS OAuth2 Module
  *
  * Author: Peter Smith
@@ -32,7 +47,7 @@ static void *create_auth_urs_svr_config(apr_pool_t *p, server_rec *s)
     auth_urs_svr_config* conf = apr_pcalloc( p, sizeof(*conf) );
 
     ap_log_error( APLOG_MARK, APLOG_DEBUG, 0, s,
-        "UrsAuth: Initializing server module configuration" );    
+        "UrsAuth: Initializing server module configuration" );
 
     /*
      * Initialize the redirection url map. We use this to track
@@ -59,40 +74,40 @@ static void *create_auth_urs_svr_config(apr_pool_t *p, server_rec *s)
 static int auth_urs_post_config(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s )
 {
     auth_urs_svr_config* conf;
-    
-    
+
+
     conf = ap_get_module_config(s->module_config, &auth_urs_module );
     ap_log_perror( APLOG_MARK, APLOG_NOTICE, 0, p,
-        "UrsAuth: Post Config check" );    
-        
+        "UrsAuth: Post Config check" );
+
     if( conf->session_store_path == NULL )
     {
         ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsSessionStorePath" );    
+            "UrsAuth: Missing configuration UrsSessionStorePath" );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-         
+
     if( conf->urs_auth_server.hostname == NULL  )
     {
         ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsAuthServer" );    
+            "UrsAuth: Missing configuration UrsAuthServer" );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-         
+
     if( conf->urs_auth_path == NULL  )
     {
         ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsAuthPath" );    
+            "UrsAuth: Missing configuration UrsAuthPath" );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-          
+
     if( conf->urs_token_path == NULL  )
     {
         ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsTokenPath" );    
+            "UrsAuth: Missing configuration UrsTokenPath" );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-  
+
     return OK;
 }
 
@@ -110,7 +125,7 @@ static const char *set_session_store_path(cmd_parms *cmd, void *config, const ch
 {
     auth_urs_svr_config* conf = (auth_urs_svr_config*) ap_get_module_config(
         cmd->server->module_config, &auth_urs_module );
-        
+
     char* test_file;
     apr_file_t* fd;
     apr_finfo_t finfo;
@@ -119,7 +134,7 @@ static const char *set_session_store_path(cmd_parms *cmd, void *config, const ch
     /*
      * Check that the session store path actually exists and is a directory
      */
-    if( apr_stat(&finfo, arg, APR_FINFO_TYPE, cmd->pool) != APR_SUCCESS 
+    if( apr_stat(&finfo, arg, APR_FINFO_TYPE, cmd->pool) != APR_SUCCESS
         || finfo.filetype != APR_DIR )
     {
         return apr_psprintf(cmd->pool,
@@ -155,7 +170,7 @@ static const char *set_session_store_path(cmd_parms *cmd, void *config, const ch
     conf->session_store_path = test_file;
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
-        "UrsAuth: Session store set to %s", test_file );    
+        "UrsAuth: Session store set to %s", test_file );
 
     return NULL;
 }
@@ -192,10 +207,10 @@ static const char *set_auth_server(cmd_parms *cmd, void *config, const char *arg
             "Invalid configuration for UrsAuthServer %s - path not permitted",
             arg);
     }
-    
+
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: URS authentication server configured as %s", arg );
-    
+
     return NULL;
 }
 
@@ -230,7 +245,7 @@ static const char *set_auth_path(cmd_parms *cmd, void *config, const char *arg)
     conf->urs_auth_path = apr_pstrdup(cmd->pool, arg);
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: URS authentication path set to %s", arg );
-    
+
     return NULL;
 }
 
@@ -265,7 +280,7 @@ static const char *set_token_path(cmd_parms *cmd, void *config, const char *arg)
     conf->urs_token_path = apr_pstrdup(cmd->pool, arg);
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: URS token path set to %s", arg );
-    
+
     return NULL;
 }
 
@@ -285,7 +300,7 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
 
     /*
      * Initialize the user profile sub-process environment
-     * map. 
+     * map.
      */
     conf->user_profile_env = apr_table_make(p, 10);
 
@@ -370,7 +385,7 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
     {
         elements = apr_table_elts(base->user_profile_env);
     }
-    
+
     if( elements->nelts > 0 )
     {
         const apr_table_entry_t*  entry;
@@ -385,7 +400,7 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
             apr_table_set(conf->user_profile_env, key, value);
         }
     }
-     
+
 
     return conf;
 }
@@ -413,7 +428,7 @@ static const char *set_client_id(cmd_parms *cmd, void *config, const char *arg)
 
 
 /**
- * Callback used by apache to set the authorization code when it 
+ * Callback used by apache to set the authorization code when it
  * encounters our UrsAuthCode configuration directive.
  *
  * @param cmd pointer to the the command/directive structure
@@ -434,7 +449,7 @@ static const char *set_authorization_code(cmd_parms *cmd, void *config, const ch
 
 
 /**
- * Callback used by apache to set the anonymous user when it 
+ * Callback used by apache to set the anonymous user when it
  * encounters our UrsAllowAnonymous configuration directive.
  *
  * @param cmd pointer to the the command/directive structure
@@ -483,16 +498,16 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
         }
         ++i;
     }
-    
-    
+
+
     /*
      * Check to see if we can add this redirection URL to the server level
      * redirection map. This is a mapping from the URL to the auth group,
-     * and must be unique across all configurations. 
+     * and must be unique across all configurations.
      * We can only set this when both the group AND the URL have been set,
      * but have no control over the order (and no post-config processing).
      * Thus we must check in each setter method to see if the other one is
-     * set, and if so, update the map. Hence this code is duplicated in 
+     * set, and if so, update the map. Hence this code is duplicated in
      * the other setter function (as is this comment!).
      */
     sconf = (auth_urs_svr_config*) ap_get_module_config(
@@ -501,7 +516,7 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
     if( conf->redirect_url.path != NULL )
     {
         const char* p = apr_table_get(sconf->redirection_map, conf->redirect_url.path);
-        
+
         if( p == NULL )
         {
             apr_table_setn(sconf->redirection_map,
@@ -510,23 +525,23 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
         else if( strcasecmp(p, conf->authorization_group) != 0 )
         {
             /* A redirection point associated with more than one group */
-            
+
             return apr_psprintf(cmd->pool,
                 "Invalid configuration for UrsRedirectUrl %s and UrsAuthGroup %s"
                 " - redirection url already assigned to group %s",
                 conf->redirect_url.path, conf->authorization_group, p);
         }
     }
-    
+
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authorization group set to %s", arg );
-           
+
     return NULL;
 }
 
 
 /**
- * Callback used by apache to set the redirection URL when it 
+ * Callback used by apache to set the redirection URL when it
  * encounters our UrsRedirectUrl configuration directive.
  * Since this module intercepts a call to this url, it does not
  * actually need to be a real resource.
@@ -556,11 +571,11 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
     /*
      * Check to see if we can add this redirection URL to the server level
      * redirection map. This is a mapping from the URL to the auth group,
-     * and must be unique across all configurations. 
+     * and must be unique across all configurations.
      * We can only set this when both the group AND the URL have been set,
      * but have no control over the order (and no post-config processing).
      * Thus we must check in each setter method to see if the other one is
-     * set, and if so, update the map. Hence this code is duplicated in 
+     * set, and if so, update the map. Hence this code is duplicated in
      * the other setter function (as is this comment!).
      */
     sconf = (auth_urs_svr_config*) ap_get_module_config(
@@ -569,7 +584,7 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
     if( conf->authorization_group != NULL )
     {
         const char* p = apr_table_get(sconf->redirection_map, conf->redirect_url.path);
-        
+
         if( p == NULL )
         {
             apr_table_setn(sconf->redirection_map,
@@ -578,7 +593,7 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
         else if( strcasecmp(p, conf->authorization_group) != 0 )
         {
             /* A redirection point associated with more than one group */
-            
+
             return apr_psprintf(cmd->pool,
                 "Invalid configuration for UrsRedirectUrl %s and UrsAuthGroup %s"
                 " - redirection url already assigned to group %s",
@@ -587,9 +602,9 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
     }
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
-        "UrsAuth: Application redirection URL set to %s://%s%s", 
+        "UrsAuth: Application redirection URL set to %s://%s%s",
         conf->redirect_url.scheme, conf->redirect_url.hostinfo, conf->redirect_url.path );
-    
+
     return NULL;
 }
 
@@ -605,9 +620,9 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
 static const char *set_idle_timeout(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-    
+
     char* p;
-    
+
     /*
     * Convert to a number and verify.
     */
@@ -621,7 +636,7 @@ static const char *set_idle_timeout(cmd_parms *cmd, void *config, const char *ar
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Idle timeout set to %s", arg );
-           
+
     return NULL;
 }
 
@@ -637,9 +652,9 @@ static const char *set_idle_timeout(cmd_parms *cmd, void *config, const char *ar
 static const char *set_active_timeout(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-    
+
     char* p;
-    
+
     /*
     * Convert to a number and verify.
     */
@@ -653,7 +668,7 @@ static const char *set_active_timeout(cmd_parms *cmd, void *config, const char *
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Active timeout set to %s", arg );
-           
+
     return NULL;
 }
 
@@ -669,9 +684,9 @@ static const char *set_active_timeout(cmd_parms *cmd, void *config, const char *
 static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-    
+
     char* p;
-    
+
     /*
     * Convert to a number and verify.
     */
@@ -692,7 +707,7 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Splash screen disable set to %s", arg );
-           
+
     return NULL;
 }
 
@@ -708,9 +723,9 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 static const char *set_ip_check_octets(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-    
+
     char* p;
-    
+
     /*
     * Convert to a number and verify.
     */
@@ -727,10 +742,10 @@ static const char *set_ip_check_octets(cmd_parms *cmd, void *config, const char 
             "Invalid configuration for UrsIPCheckOctets %s - out of range (0-4 inclusive)",
             arg);
     }
-    
+
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Active timeout set to %s", arg );
-           
+
     return NULL;
 }
 
@@ -747,17 +762,17 @@ static const char *set_ip_check_octets(cmd_parms *cmd, void *config, const char 
 static const char *set_user_profile_env(cmd_parms *cmd, void *config, const char *arg1, const char *arg2)
 {
     auth_urs_dir_config* conf = config;
-    
+
     if( arg1 == NULL || arg2 == NULL )
     {
         return apr_psprintf(cmd->pool,
             "Invalid configuration for UrsUserProfileEnv - null value");
     }
-    
+
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Setting user profile env %s = %s", arg1, arg2 );
 
-    
+
     apr_table_set(conf->user_profile_env, arg1, arg2);
 
     return NULL;
@@ -765,7 +780,7 @@ static const char *set_user_profile_env(cmd_parms *cmd, void *config, const char
 
 
 /**
- * Callback used by apache to set the access error URL when it 
+ * Callback used by apache to set the access error URL when it
  * encounters our UrsAccessErrorUrl configuration directive.
  *
  * @param cmd pointer to the the command/directive structure
@@ -779,9 +794,9 @@ static const char *set_access_error_url(cmd_parms *cmd, void *config, const char
     conf->access_error_url = apr_pstrdup(cmd->pool, arg);
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
-        "UrsAuth: Access error URL set to %s", 
+        "UrsAuth: Access error URL set to %s",
         conf->access_error_url );
-    
+
     return NULL;
 }
 
@@ -904,8 +919,8 @@ static void register_hooks(apr_pool_t *p)
     * the authentication check and redirection.
     */
     ap_hook_check_user_id(auth_urs_check_user_id, NULL, NULL, APR_HOOK_MIDDLE);
-    
-    
+
+
     /**
     * Hook used to verify that the necessary configuration has been set.
     */

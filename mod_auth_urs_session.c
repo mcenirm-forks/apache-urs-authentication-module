@@ -1,4 +1,19 @@
 /*
+ * Copyright 2014 NASA
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ *
+ *
  * mod_auth_urs_session.c: URS OAuth2 Module
  *
  * This file contains code relating to the management of
@@ -36,7 +51,7 @@ static int write_urs_session_pairs(void *fd, const char* key, const char* value 
 
 /**
  * Writes session data table to a session file.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -52,12 +67,12 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
 
     int                 open_flags = APR_READ | APR_WRITE | APR_CREATE;
     int                 open_perms = APR_FPROT_UREAD | APR_FPROT_UWRITE;
-    
-    
+
+
     conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    
-    /* 
-     * Build the session file name 
+
+    /*
+     * Build the session file name
      */
     session_file = apr_pstrcat(r->pool, conf->session_store_path, auth_cookie, NULL);
 
@@ -73,8 +88,8 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
 
         return results;
     }
-   
-   
+
+
     /*
      * Attempt to get an exclusive lock on the file to prevent a parallel request
      * from the same client from trying to do the same. If we fail, we pause for
@@ -84,7 +99,7 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
      {
         apr_interval_time_t pause = 100000;
         apr_sleep(pause);
-        
+
         if( apr_file_lock(fd, APR_FLOCK_EXCLUSIVE) != APR_SUCCESS )
         {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
@@ -94,8 +109,8 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
             return APR_EGENERAL;
         }
      }
-     
-    
+
+
     /*
      * Truncate the file. We cannot do this as part of the open, since we
      * do not have the lock at that point, and some other thread may be in
@@ -126,7 +141,7 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
     {
         return APR_EGENERAL;
     }
-    
+
     return APR_SUCCESS;
 }
 
@@ -134,7 +149,7 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
 
 /**
  * Reads a session file into a session data table.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -156,8 +171,8 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
 
 
     conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    
-    
+
+
     /*
      * Build the session file name
      */
@@ -169,7 +184,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
     /*
      * Get the session file size so we can load it into a contiguous chunk
      * of memory. We place an upper limit on the size.
-     */ 
+     */
     if( apr_stat(&finfo, session_file, APR_FINFO_SIZE, r->pool) != APR_SUCCESS )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
@@ -182,8 +197,8 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
             "Possible session file corruption: %s", session_file );
         return APR_EGENERAL;
     }
-    
-    
+
+
     /*
      * Open the session file
      */
@@ -196,7 +211,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
         return results;
     }
 
-  
+
     /*
      * Allocate memory from the connection pool (it will persist
      * for the duration of the connection) and load the session
@@ -204,7 +219,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
      */
     session_content = apr_pcalloc(r->connection->pool, finfo.size );
     nbytes = finfo.size;
-    
+
     if( apr_file_read(fd, session_content, &nbytes) != APR_SUCCESS
         || nbytes != finfo.size )
     {
@@ -216,7 +231,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
     }
     apr_file_close(fd);
 
-    
+
     /*
      * Process the data into key/value pairs and load into the session
      * table. For efficiency, we use the original memory used to load
@@ -229,10 +244,10 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
         nbytes += strlen(key) + 1;
         value = session_content + nbytes;
         nbytes += strlen(value) + 1;
-        
+
         apr_table_setn(session_data, key, value);
     }
-    
+
     if( nbytes != finfo.size )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
@@ -249,7 +264,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
 
 /**
  * Deletes a session file.
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @param auth_cookie the cookie value. This is used to identify
  *          the session file.
@@ -261,19 +276,19 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie)
     auth_urs_svr_config*  conf;
     char*                 session_file;
 
-    
+
     conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    
-    
+
+
     /* Build the session file name */
-    
+
     session_file = apr_pcalloc(r->pool, strlen(conf->session_store_path) + strlen(auth_cookie) + 2);
     strcpy(session_file, conf->session_store_path);
     strcat(session_file, auth_cookie);
 
 
     /* Delete session file */
-    
+
     apr_file_remove(session_file, r->pool );
 
     return APR_SUCCESS;
@@ -285,21 +300,21 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie)
  * Creates a unique cookie ID that can be used as a session
  * reference.
  *
- * @param r a pointer to the request structure for the 
+ * @param r a pointer to the request structure for the
  *          currently active request.
  * @return a pointer to the name of a new, unique, session
  */
 const char* create_urs_cookie_id(request_rec *r)
 {
     auth_urs_svr_config*    conf;
-    
+
     apr_uuid_t      uuid;
     apr_status_t    result;
     apr_file_t*     fd;
 
     char*           session_file;
     int             offset;
-    int             i = 0;    
+    int             i = 0;
 
 
     conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
@@ -323,7 +338,7 @@ const char* create_urs_cookie_id(request_rec *r)
     offset = strlen(conf->session_store_path);
     session_file = apr_palloc(r->pool, offset + APR_UUID_FORMATTED_LENGTH + 10);
     strcpy(session_file,  conf->session_store_path );
-    
+
     do
     {
         int open_flags = APR_WRITE | APR_CREATE | APR_EXCL;
@@ -336,7 +351,7 @@ const char* create_urs_cookie_id(request_rec *r)
          */
         apr_uuid_get(&uuid);
         apr_uuid_format(session_file + offset, &uuid);
-        
+
 
         /*
          * Test its uniqueness by trying to open the file in exclusive mode.
@@ -372,7 +387,7 @@ const char* create_urs_cookie_id(request_rec *r)
 static int write_urs_session_pairs(void *fd, const char* key, const char* value )
 {
     apr_file_printf(fd, "%s%c%s%c", key, 0, value, 0);
-    
+
     return 1;
 }
 
