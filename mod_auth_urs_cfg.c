@@ -344,6 +344,9 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
     s = (add->access_error_url != NULL) ? add->access_error_url : base->access_error_url;
     if( s != NULL ) conf->access_error_url = apr_pstrdup(p, s);
 
+    s = (add->access_error_parameter != NULL) ? add->access_error_parameter : base->access_error_parameter;
+    if( s != NULL ) conf->access_error_parameter = apr_pstrdup(p, s);
+
     s = (add->anonymous_user != NULL) ? add->anonymous_user : base->anonymous_user;
     if( s != NULL ) conf->anonymous_user = apr_pstrdup(p, s);
 
@@ -801,6 +804,28 @@ static const char *set_access_error_url(cmd_parms *cmd, void *config, const char
 }
 
 
+/**
+ * Callback used by apache to set the access error parameter name when it
+ * encounters our UrsAccessErrorParameter configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_access_error_parameter(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->access_error_parameter = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Access error parameter set to %s",
+        conf->access_error_parameter );
+
+    return NULL;
+}
+
+
 
 /**
  * Module configuration records.
@@ -902,6 +927,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the access error redirection URL" ),
+
+    AP_INIT_TAKE1( "UrsAccessErrorParameter",
+                    set_access_error_parameter,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the access error URL parameter name" ),
 
     { NULL }
 };

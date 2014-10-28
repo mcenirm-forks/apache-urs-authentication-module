@@ -152,6 +152,11 @@ typedef struct auth_urs_dir_config_t
      */
     char*       access_error_url;
 
+    /**
+     * The access error resource parameter name
+     */
+    char*       access_error_parameter;
+
 
 } auth_urs_dir_config;
 

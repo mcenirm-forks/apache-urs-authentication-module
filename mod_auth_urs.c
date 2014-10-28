@@ -202,6 +202,28 @@ int auth_urs_post_read_request_redirect(request_rec *r)
         if( error != NULL && strcmp(error, "access_denied") == 0
                 && dconf->access_error_url != NULL )
         {
+            const char* error_url = dconf->access_error_url;
+
+            /*
+             * If we have a UrsAccessErrorParmeter configured, add the
+             * original resource URL requested by the user to the
+             * error url. Note that if the URL already contains a
+             * query parameter, we must append it with '&' rather
+             * than '?'
+             */
+            if( dconf->access_error_parameter != NULL )
+            {
+                const char* qp = "?";
+                if( strchr(dconf->access_error_url, '?') != NULL )
+                {
+                    qp = "&";
+                }
+
+                error_url = apr_pstrcat( r->pool, dconf->access_error_url,
+                        qp, dconf->access_error_parameter, "=",
+                        url_encode(r, url_str), NULL );
+            }
+
             /*
              * This is the case when the user denies access to the application
              * (in the case of an interactive user-agent), or has not already
@@ -210,7 +232,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
             ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
                 "UrsAuth: Access denied to user profile" );
 
-            apr_table_setn(r->err_headers_out, "Location", dconf->access_error_url);
+            apr_table_setn(r->err_headers_out, "Location", error_url);
             return HTTP_MOVED_TEMPORARILY;
         }
 
