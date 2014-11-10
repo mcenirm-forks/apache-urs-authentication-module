@@ -798,9 +798,9 @@ int auth_urs_check_user_id(request_rec *r)
             body_size -= strlen(type) + 1;
         }
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-            "UrsAuth: Reconstructed content type = %s", type );
+            "UrsAuth: Reconstructed POST content type = %s", type );
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-            "UrsAuth: Reconstructed body = %s", body );
+            "UrsAuth: Reconstructed POST body = %s", body );
 
 
         /*
@@ -946,8 +946,8 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
     }
 
     /*!!! Potential security problem */
-    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Received json: %s", body );
+/*    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,  */
+/*        "UrsAuth: Received json: %s", body );      */
 
     if( !json_has_member(json, "access_token" ) )
     {
@@ -1024,8 +1024,8 @@ static int retrieve_user_profile(
     }
 
     /*!!! Potential security problem - this is for testing only */
-    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-            "UrsAuth: User profile: %s", body );
+/*    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r, */
+/*            "UrsAuth: User profile: %s", body );  */
 
     return status;
 }
@@ -1227,9 +1227,6 @@ apr_status_t auth_urs_post_body_filter( ap_filter_t* f, apr_bucket_brigade* bb, 
 {
     auth_urs_post_input_filter_ctx* ctx = (auth_urs_post_input_filter_ctx*) f->ctx;
 
-    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, f->r,
-        "UrsAuth: POST body input filter invoked: %d : %d", (int) mode, (int) readbytes );
-
     if( mode != AP_MODE_READBYTES )
     {
         /*
@@ -1262,9 +1259,6 @@ apr_status_t auth_urs_post_body_filter( ap_filter_t* f, apr_bucket_brigade* bb, 
         /*
          * We simply want to create a bucket and put in the appropriate amount of data.
          */
-        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, f->r,
-                "UrsAuth: Returning %d bytes from post body input filter", (int) readbytes );
-
         APR_BRIGADE_INSERT_TAIL(bb, apr_bucket_transient_create( ctx->body, readbytes, f->c->bucket_alloc));
         ctx->body += readbytes;
         ctx->body_size -= readbytes;
