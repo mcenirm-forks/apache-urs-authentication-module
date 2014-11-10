@@ -28,6 +28,7 @@
 
 #include    "apr_lib.h"
 #include    "apr_strings.h"
+#include    "util_filter.h"
 
 
 
@@ -217,7 +218,7 @@ char* get_cookie( request_rec* r, const char* cookie_name )
 
     if( all_cookies == NULL ) return NULL;
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Cookie string: %s", all_cookies );
+        "UrsAuth: Searching for cookie %s in cookie string: %s", cookie_name, all_cookies );
 
     /*
      * We have some cookies. Look to see if we can find
@@ -225,21 +226,31 @@ char* get_cookie( request_rec* r, const char* cookie_name )
      * a cookie name is part of another cookie name, so we must
      * explicitly check the cookie name boundaries.
      */
-    start = strstr(all_cookies, cookie_name);
+    start = all_cookies;
+    while( (start = strstr(start, cookie_name)) != NULL )
+    {
+        if( start > all_cookies && start[-1] != ' ')
+        {
+            ++start;
+            continue;
+        }
+
+        start += strlen(cookie_name);
+        if( start[0] == '=' ) break;
+    }
+
     if( start == NULL ) return NULL;
-    if( start > all_cookies && start[-1] != ' ') return NULL;
 
-
-    start += strlen(cookie_name);
-    if( start[0] != '=' ) return NULL;
-
+    /*
+     * We have the named cookie, so extract the cookie value
+     */
     ++start;
     end = strchr(start, ';');
     if( end == NULL )
     {
         end = start + strlen(start);
     }
-    if( start == end ) return NULL;
+    if( start == end ) return "";
 
     return apr_pstrndup(r->pool, start, (end - start));
 }
@@ -533,7 +544,7 @@ static int http_get_request(request_rec *r, ssl_connection *c, apr_uri_t* server
  * @param headers used to return the response headers
  * @param body used to return the body of the response
  * @return the response status
-*
+ *
  */
 static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* headers, char** body)
 {
@@ -741,4 +752,151 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
 
 
 
+/**
+ * Reads the body of an HTTP request.
+ *
+ * @param r the current request (used for configuration/memory pool allocations)
+ * @param buffer the buffer into which the data will be placed
+ * @param size the size of the buffer. Used also to return the size of the data.
+ * @return the response status
+ *
+ */
+int get_request_body( request_rec* r, char* buffer, int* size )
+{
+    int bytes_read = 0;
+    int end = 0;
 
+    apr_bucket_brigade* bb;
+    apr_bucket* b;
+    apr_status_t status;
+
+
+    /*
+     * Check to see if there was a content length header provided with the request. If
+     * not, we check the transfer encoding to see if it is chunked.
+     */
+    const char* header = apr_table_get(r->headers_in, "Content-Length");
+    if( header != NULL )
+    {
+        int body_size = strtol(header, NULL, 0);
+        if( body_size > *size )
+        {
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "POST body size of %d - too large to preserve", body_size );
+
+            return HTTP_REQUEST_ENTITY_TOO_LARGE;
+        }
+    }
+    else if( (header = apr_table_get(r->headers_in, "Transfer-Encoding")) != NULL )
+    {
+          if( strcasecmp(header, "chunked") != 0 )
+          {
+              ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                  "Upsupported transfer encoding '%s'", header );
+
+              return HTTP_BAD_REQUEST;
+          }
+    }
+    else
+    {
+        /*
+         * No body
+         */
+        *size = 0;
+        return OK;
+    }
+
+
+    /*
+     * Now start reading the body.
+     */
+    bb = apr_brigade_create(r->pool, r->connection->bucket_alloc);
+
+    while( !end )
+    {
+        /*
+         * Get the next brigade.
+         */
+        status = ap_get_brigade(r->input_filters, bb, AP_MODE_READBYTES, APR_BLOCK_READ, 16536);
+        if( status != APR_SUCCESS )
+        {
+            /*
+             * If we failed reading the brigade, clean up and exit
+             */
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "Failed reading request body data" );
+            apr_brigade_cleanup(bb);
+
+            return HTTP_BAD_REQUEST;
+        }
+
+
+        /*
+         * Process the buckets for this brigade.
+         */
+        for( b = APR_BRIGADE_FIRST(bb); b != APR_BRIGADE_SENTINEL(bb); b = APR_BUCKET_NEXT(b) )
+        {
+            if( APR_BUCKET_IS_EOS(b) )
+            {
+                /*
+                 * We have reached the end of the input stream with no overflow, so
+                 * everything is good.
+                 */
+                end = 1;
+            }
+            else if( APR_BUCKET_IS_METADATA(b) )
+            {
+                continue;
+            }
+            else
+            {
+                /*
+                 * Read the next chunk of data from the bucket.
+                 */
+                const char* partial_buffer = NULL;
+                apr_size_t count = 0;
+
+                status = apr_bucket_read(b, &partial_buffer, &count, APR_BLOCK_READ);
+                if( status != APR_SUCCESS )
+                {
+                    /*
+                     * If we failed reading the brigade, clean up and exit
+                     */
+                    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                        "Failed reading request body data" );
+                    apr_brigade_cleanup(bb);
+                    return HTTP_BAD_REQUEST;
+                }
+
+                if( (bytes_read + count) > *size )
+                {
+                    /*
+                     * There is more data than allowed, so flag an error
+                      */
+                    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                        "POST body too large to preserve" );
+                    apr_brigade_cleanup(bb);
+                    return HTTP_REQUEST_ENTITY_TOO_LARGE;
+                }
+                ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                    "Read %ld bytes from request body", count );
+
+                /*
+                 * Append the newly read data to the buffer
+                 */
+                memcpy(buffer + bytes_read, partial_buffer, count);
+                bytes_read += count;
+            }
+        }
+
+        apr_brigade_cleanup(bb);
+    }
+
+
+    /*
+     * If we get here, we read the request body
+     */
+    *size = bytes_read;
+
+    return OK;
+}

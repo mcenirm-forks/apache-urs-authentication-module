@@ -34,7 +34,6 @@
 
 
 
-
 /**
  * Method used to create the module server configuration.
  *
@@ -945,29 +944,35 @@ static const command_rec auth_urs_cmds[] =
  */
 static void register_hooks(apr_pool_t *p)
 {
-    /**
-    * Register the primary entry point for our module. This performs
-    * the authentication check and redirection.
-    */
+    /*
+     * Register the primary entry point for our module. This performs
+     * the authentication check and redirection.
+     */
     ap_hook_check_user_id(auth_urs_check_user_id, NULL, NULL, APR_HOOK_MIDDLE);
 
 
-    /**
-    * Hook used to verify that the necessary configuration has been set.
-    */
+    /*
+     * Hook used to verify that the necessary configuration has been set.
+     */
     ap_hook_post_config(auth_urs_post_config, NULL, NULL, APR_HOOK_MIDDLE);
 
 
-    /**
-    * Hook used to capture and redirect the URS auth redirection
-    */
+    /*
+     * Hook used to capture and redirect the URS auth redirection
+     */
     ap_hook_post_read_request(auth_urs_post_read_request_redirect, NULL, NULL, APR_HOOK_MIDDLE);
 
 
-    /**
-    * Hook used to capture logout requests
-    */
+    /*
+     * Hook used to capture logout requests
+     */
     ap_hook_post_read_request(auth_urs_post_read_request_logout, NULL, NULL, APR_HOOK_MIDDLE);
+
+
+    /*
+     * Filter used to reconstruct the body of a POST request
+     */
+    ap_register_input_filter( "UrsPostReconstruct", auth_urs_post_body_filter, NULL, AP_FTYPE_CONTENT_SET);
 }
 
 

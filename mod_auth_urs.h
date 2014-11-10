@@ -24,8 +24,8 @@
  */
 
 #include    "httpd.h"
+#include    "http_core.h"
 #include    "http_config.h"
-#include    "apr_tables.h"
 
 
 extern module AP_MODULE_DECLARE_DATA auth_urs_module;
@@ -161,6 +161,24 @@ typedef struct auth_urs_dir_config_t
 } auth_urs_dir_config;
 
 
+/**
+ * URS oauth2 module input filter context structure.
+ * This structure is used to pass POST body information
+ * through to the input filter.
+ */
+typedef struct auth_urs_post_input_filter_ctx_t
+{
+    /*
+     * A pointer to the post body contents
+     */
+    char*  body;
+
+    /*
+     * The size of the post body
+     */
+    int  body_size;
+
+} auth_urs_post_input_filter_ctx;
 
 
 /**
@@ -205,6 +223,16 @@ int auth_urs_post_read_request_logout(request_rec* r);
  */
 int auth_urs_check_user_id(request_rec* r);
 
+
+/*
+ * Declaration for the POST body input filter function.
+ */
+apr_status_t auth_urs_post_body_filter(
+        ap_filter_t* f,
+        apr_bucket_brigade* bb,
+        ap_input_mode_t mode,
+        apr_read_type_e block,
+        apr_off_t readbytes );
 
 
 /****************************************
@@ -445,6 +473,20 @@ int http_get(
         apr_table_t* headers,
         char** body);
 
+
+/**
+ * Reads the body of an HTTP request.
+ *
+ * @param r the current request (used for configuration/memory pool allocations)
+ * @param buffer the buffer into which the data will be placed
+ * @param size the size of the buffer. Used also to return the size of the data.
+ * @return the response status
+ *
+ */
+int get_request_body(
+        request_rec* r,
+        char* buffer,
+        int* size );
 
 
 /****************************************

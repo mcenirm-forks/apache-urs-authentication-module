@@ -276,8 +276,11 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     current_time = apr_time_sec(apr_time_now());
     session_data = apr_table_make(r->connection->pool, 10);
-
+#if AP_SERVER_MAJORVERSION_NUMBER > 2 || (AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER >= 4)
+    apr_table_set(session_data, "ip", r->useragent_ip);
+#else
     apr_table_set(session_data, "ip", r->connection->remote_ip);
+#endif
     apr_table_setn(session_data, "starttime", apr_ltoa(r->connection->pool, current_time));
     apr_table_setn(session_data, "lastupdatetime", apr_ltoa(r->connection->pool, current_time));
     apr_table_set(session_data, "uid", json_get_member_string(user_profile, "uid"));
@@ -625,19 +628,82 @@ int auth_urs_check_user_id(request_rec *r)
 
 
         /*
-         * Currently, we can only handle GET requests at
-         * initial authentication (otherwise we would potentially have
-         * to record too much information).
+         * Check the request type. We only support POST and GET requests,
+         * and the POST requests require special handling to store the
+         * request content in a client side cookie.
          */
-        if( r->method_number != M_GET )
+        if( r->method_number == M_POST )
         {
-            ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
+            /*
+             * This is a POST request that requires special handling since it may
+             * contain a body that needs to be preserved.
+             */
+            int status;
+            int size = 2048;
+            char* cookie;
+            const char* header;
+            int len;
+            char* buffer;
+
+
+            /*
+             * Get the content type. We must store this in the POST cookie as well,
+             * since we need to reconstruct it properly after authentication.
+             */
+            header = apr_table_get(r->headers_in, "Content-Type");
+            if( header == NULL ) header = "application/x-www-form-urlencoded";
+            len = strlen(header);
+
+
+            /*
+             * Get the request body. It will update 'size' to the amount
+             * of data found in the body.
+             */
+            buffer = apr_palloc(r->pool, size + len + 2);
+            strcpy(buffer, header);
+            status = get_request_body(r, buffer + len + 1, &size);
+            if( status != OK )
+            {
+                return status;
+            }
+
+
+            /*
+             * Encode the content type and request body in base64. It is possible
+             * that the body contains binary data, so we use base64 encoding so we
+             * can store it in a cookie. We have to chop off any '=' padding, since
+             * these are not permitted characters in a cookie.
+             */
+            cookie = apr_palloc(r->pool, ((size + len + 2) / 3) * 4 + 8);
+            size = apr_base64_encode_binary(cookie, buffer, size + len + 1) - 1;
+            if( size > 0 && cookie[size - 1] == '=' ) --size;
+            if( size > 0 && cookie[size - 1] == '=' ) --size;
+            cookie[size] = 0;
+
+
+            /*
+             * Construct the cookie. This not only stores the request content, but acts as a flag that
+             * triggers the POST request reconstruction after authentication.
+             * The cookie is linked(PatH) to the specific resource that the user requested. We also
+             * place an age limit of 500 seconds (in most cases it should be no more than a few
+             * seconds before the redirection completes and the resource is requested again). Note that we
+             * use Max-Age which is not supported be IE8 or earlier. In this case, the cookie will only expire
+             * when the browser restarts.
+             */
+            cookie = apr_pstrcat(r->pool, dconf->authorization_group, "_post=", cookie, "; Path=", r->uri, "; Max-Age=300", NULL);
+            apr_table_set(r->err_headers_out, "Set-Cookie",  cookie );
+            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                "UrsAuth: Set post request cookie = %s", cookie );
+        }
+        else if( r->method_number != M_GET )
+        {
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: Not a GET request - forbidden" );
             return HTTP_FORBIDDEN;
         }
 
 
-        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+        ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
             "UrsAuth: Redirecting to URS for authentication" );
 
         /*
@@ -664,7 +730,7 @@ int auth_urs_check_user_id(request_rec *r)
          * just to obscure the fact that we have a URL embedded in a URL.
          */
         buffer = apr_palloc(r->pool, strlen(url) * 2);
-        buflen = apr_base64_encode(buffer, url, strlen(url));
+        buflen = apr_base64_encode(buffer, url, strlen(url)) - 1;
         --buflen; /* Return value includes null terminator in length */
 
         /* Chop off any trailing '=' which would cause problems when encoding */
@@ -700,7 +766,82 @@ int auth_urs_check_user_id(request_rec *r)
 
 
     /*
-     * If we get here, the user has authenticated, so life is good.
+     * If we get here, the user has authenticated, so life is good. We now
+     * need to check to see if the original request was a POST request (since
+     * the redirects come back in as GETs). If so, we must modify the request
+     * to make it look and feel like a POST request for the downstream handlers.
+     */
+    cookie = apr_pstrcat(r->pool, dconf->authorization_group, "_post", NULL);
+    cookie = get_cookie(r, cookie);
+    if( cookie != NULL && r->method_number == M_GET )
+    {
+        auth_urs_post_input_filter_ctx* ctx;
+
+        /*
+         * We have a 'post' cookie for this URL, so the original request was
+         * a POST request. We must convert this GET back into a POST (not an
+         * easy task). First decode the cookie data - this is the orginal
+         * POST request body and the content type, both of which must be
+         * reconstructed in order for any downstream application to work.
+         */
+        int body_size = 0;
+        char* body = "";
+        char* type = "application/x-www-form-urlencoded";
+
+        if( cookie[0] != '\0' )
+        {
+            body_size = apr_base64_decode_len(cookie);
+            body = apr_pcalloc(r->pool, body_size + 1);
+            body_size = apr_base64_decode_binary(body, cookie);
+            type = body;
+            body += strlen(type) + 1;
+            body_size -= strlen(type) + 1;
+        }
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+            "UrsAuth: Reconstructed content type = %s", type );
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+            "UrsAuth: Reconstructed body = %s", body );
+
+
+        /*
+         * Change the request back to a POST type. We must set the content type and length
+         * headers.
+         */
+        r->method_number = M_POST;
+        r->method = "POST";
+        r->the_request = apr_pstrcat(r->pool, r->method, (r->the_request + 3), NULL);
+        apr_table_setn(r->headers_in,
+            "Content-Type", type);
+        apr_table_setn(r->headers_in,
+            "Content-Length", apr_psprintf(r->pool, "%d", body_size));
+
+
+        /*
+         * Add an input filter to the request. This will regenerate the request body when the downstream
+         * handler reads the input stream.
+         */
+        ctx = (auth_urs_post_input_filter_ctx*) apr_pcalloc(r->pool, sizeof(auth_urs_post_input_filter_ctx));
+        ctx->body = body;
+        ctx->body_size = body_size;
+        ap_add_input_filter( "UrsPostReconstruct", ctx, r, r->connection);
+
+
+        /*
+         * Make sure the POST cookie is expired so it cannot influence a
+         * GET request to the same URL at a later point.
+         */
+        apr_table_setn(r->err_headers_out,
+            "Set-Cookie",
+            apr_pstrcat(r->pool,
+                dconf->authorization_group,
+                "_post=; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Path=", r->uri, NULL) );
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+            "UrsAuth: Expired post cookie %s_post", dconf->authorization_group );
+    }
+
+
+
+    /*
      * All we have to do now is set up some basic environment information
      * about the user so that it can be picked up by downstream modules,
      * or even cgi scripts.
@@ -929,7 +1070,11 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
     if( dconf->check_ip_octets > 0 )
     {
         const char* real_ip = apr_table_get(session_data, "ip");
+#if AP_SERVER_MAJORVERSION_NUMBER > 2 || (AP_SERVER_MAJORVERSION_NUMBER == 2 && AP_SERVER_MINORVERSION_NUMBER >= 4)
+        const char* fake_ip = r->useragent_ip;
+#else
         const char* fake_ip = r->connection->remote_ip;
+#endif
         int i;
 
         for( i = 0; i < dconf->check_ip_octets; ++i )
@@ -1068,4 +1213,74 @@ static char* replace_cookie( request_rec* r, const char* cookies, const char* co
 
     return start;
 }
+
+
+/************************************
+ * Filter methods
+ ************************************/
+/**
+ * Request input filter used to re-insert the previously saved body of a POST request. This filter
+ * is attached to the input filter chain for a request that was original submitted as a POST request,
+ * but then got converted to a GET request as a result of the authentication redirections.
+ */
+apr_status_t auth_urs_post_body_filter( ap_filter_t* f, apr_bucket_brigade* bb, ap_input_mode_t mode, apr_read_type_e block, apr_off_t readbytes )
+{
+    auth_urs_post_input_filter_ctx* ctx = (auth_urs_post_input_filter_ctx*) f->ctx;
+
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, f->r,
+        "UrsAuth: POST body input filter invoked: %d : %d", (int) mode, (int) readbytes );
+
+    if( mode != AP_MODE_READBYTES )
+    {
+        /*
+         * This is a quirk needed to trigger an output pipeline flush in http_request.c
+         * (part of the core system) that prevents a short delay in sending the response
+         */
+        return APR_EOF;
+    }
+
+
+    if(ctx == NULL || ctx->body == NULL )
+    {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, f->r,
+            "UrsAuth: Missing context information in post body input filter" );
+
+        return APR_EGENERAL;
+    }
+
+
+    /*
+     * If we have some data left to provide, then do so
+     */
+    if( readbytes > ctx->body_size )
+    {
+        readbytes = ctx->body_size;
+    }
+
+    if( readbytes > 0 )
+    {
+        /*
+         * We simply want to create a bucket and put in the appropriate amount of data.
+         */
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, f->r,
+                "UrsAuth: Returning %d bytes from post body input filter", (int) readbytes );
+
+        APR_BRIGADE_INSERT_TAIL(bb, apr_bucket_transient_create( ctx->body, readbytes, f->c->bucket_alloc));
+        ctx->body += readbytes;
+        ctx->body_size -= readbytes;
+    }
+
+
+    /*
+     * If we have reached the end of the data, then add an end-of-stream marker
+     */
+    if( ctx->body_size == 0 )
+    {
+        APR_BRIGADE_INSERT_TAIL(bb, apr_bucket_eos_create(f->c->bucket_alloc));
+    }
+
+    return APR_SUCCESS;
+}
+
+
 
