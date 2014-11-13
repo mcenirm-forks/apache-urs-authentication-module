@@ -714,13 +714,13 @@ int auth_urs_check_user_id(request_rec *r)
         if( ap_is_default_port(ap_get_server_port(r), r) )
         {
             url = apr_psprintf(r->pool, "%s://%s%s",
-                ap_get_server_protocol(r->server), ap_get_server_name(r),
+                ap_http_scheme(r), ap_get_server_name(r),
                 r->unparsed_uri);
         }
         else
         {
             url = apr_psprintf(r->pool, "%s://%s:%d%s",
-                ap_get_server_protocol(r->server), ap_get_server_name(r),
+                ap_http_scheme(r), ap_get_server_name(r),
                 ap_get_server_port(r), r->unparsed_uri);
         }
 
