@@ -730,7 +730,7 @@ int auth_urs_check_user_id(request_rec *r)
          * just to obscure the fact that we have a URL embedded in a URL.
          */
         buffer = apr_palloc(r->pool, strlen(url) * 2);
-        buflen = apr_base64_encode(buffer, url, strlen(url)) - 1;
+        buflen = apr_base64_encode(buffer, url, strlen(url));
         --buflen; /* Return value includes null terminator in length */
 
         /* Chop off any trailing '=' which would cause problems when encoding */
