@@ -141,6 +141,11 @@ typedef struct auth_urs_dir_config_t
     int         splash_disable;
 
     /**
+     *  Enables the 401 response from URS
+     */
+    int         auth401_enable;
+
+    /**
      * A table of user profile parameters to save in the
      * sub-process environment.
      *

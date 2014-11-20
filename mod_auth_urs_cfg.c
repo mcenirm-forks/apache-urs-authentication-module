@@ -365,6 +365,9 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
     i = (add->splash_disable != 0) ? add->splash_disable : base->splash_disable;
     conf->splash_disable = i;
 
+    i = (add->auth401_enable != 0) ? add->auth401_enable : base->auth401_enable;
+    conf->auth401_enable = i;
+
 
     /*
      * Copy the redirection uri
@@ -715,6 +718,45 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 
 
 /**
+ * Callback used by apache to set the 401 URS response.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_auth401_enable(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+
+    char* p;
+
+    /*
+    * Convert to a number and verify.
+    */
+    if( strcasecmp(arg, "true") == 0 || strcasecmp(arg, "yes") == 0 )
+    {
+        conf->auth401_enable = 1;
+    }
+    else if( strcasecmp(arg, "false") == 0 || strcasecmp(arg, "no") == 0 )
+    {
+        conf->auth401_enable = 0;
+    }
+    else
+    {
+        return apr_psprintf(cmd->pool,
+            "Invalid configuration for Urs401Enable %s",
+            arg);
+    }
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: 401 authorization enable set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
  * Callback used by apache to set the session ip octet check count.
  *
  * @param cmd pointer to the the command/directive structure
@@ -908,6 +950,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Disable URS OAuth2 splash screen" ),
+
+    AP_INIT_TAKE1( "Urs401Enable",
+                    set_auth401_enable,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Enable URS 401 response" ),
 
     AP_INIT_TAKE1( "UrsIPCheckOctets",
                     set_ip_check_octets,

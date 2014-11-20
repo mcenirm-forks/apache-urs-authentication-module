@@ -746,11 +746,12 @@ int auth_urs_check_user_id(request_rec *r)
          * contain a '/').
          */
         buffer = apr_psprintf(r->pool,
-            "%s://%s%s%s%sclient_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
+            "%s://%s%s%s%s%sclient_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
             sconf->urs_auth_server.scheme, sconf->urs_auth_server.hostinfo,
             sconf->urs_auth_path,
             strchr(sconf->urs_auth_path, '?') == NULL ? "?" : "&",
             dconf->splash_disable ? "splash=false&" : "",
+            dconf->auth401_enable ? "app_type=401&" : "",
             url_encode(r, dconf->client_id),
             dconf->redirect_url.scheme, url_encode(r, dconf->redirect_url.hostinfo),
             url_encode(r, dconf->redirect_url.path),
