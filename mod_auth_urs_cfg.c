@@ -58,56 +58,76 @@ static void *create_auth_urs_svr_config(apr_pool_t *p, server_rec *s)
 }
 
 
-
 /**
- * Post configuration callback that we use to verify that our
- * basic module configuration is sound.
+ * Method used to merge two module server configurations.
  *
- * @param p a pool to use for permanant allocations.
- * @param p2 another pool for temporary allocations?
- * @param p3 yet another pool because 2 is never enough.
- * @param s a pointer to the server record structure.
- * return OK if configuration is value, HTTP_INTERNAL_SERVER_ERROR
- *        otherwise.
+ * @param p the pool from which to allocate storage
+ * @path path unused
+ * @return void pointer to the configuration structure
  */
-static int auth_urs_post_config(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s )
+static void *merge_auth_urs_srv_config(apr_pool_t *p, void* b, void* a)
 {
-    auth_urs_svr_config* conf;
+    auth_urs_svr_config* base = b;
+    auth_urs_svr_config* add  = a;
+    auth_urs_svr_config* conf = apr_pcalloc(p, sizeof(*conf));
+    conf->redirection_map = apr_table_make(p, 10);
+
+    char*   s;
+    const apr_array_header_t* elements;
+
+    /*
+     * Copy the string configuration values
+     */
+    s = (add->session_store_path != NULL) ? add->session_store_path : base->session_store_path;
+    if( s != NULL ) conf->session_store_path = apr_pstrdup(p, s);
+
+    s = (add->urs_auth_path != NULL) ? add->urs_auth_path : base->urs_auth_path;
+    if( s != NULL ) conf->urs_auth_path = apr_pstrdup(p, s);
+
+    s = (add->urs_token_path != NULL) ? add->urs_token_path : base->urs_token_path;
+    if( s != NULL ) conf->urs_token_path = apr_pstrdup(p, s);
 
 
-    conf = ap_get_module_config(s->module_config, &auth_urs_module );
-    ap_log_perror( APLOG_MARK, APLOG_NOTICE, 0, p,
-        "UrsAuth: Post Config check" );
-
-    if( conf->session_store_path == NULL )
+    /*
+     * Copy the auth server uri
+     */
+    if( add->urs_auth_server.is_initialized )
     {
-        ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsSessionStorePath" );
-        return HTTP_INTERNAL_SERVER_ERROR;
+        apr_uri_parse(p, apr_uri_unparse(p, &add->urs_auth_server, 0), &conf->urs_auth_server);
+    }
+    else if( base->urs_auth_server.is_initialized )
+    {
+        apr_uri_parse(p, apr_uri_unparse(p, &base->urs_auth_server, 0), &conf->urs_auth_server);
     }
 
-    if( conf->urs_auth_server.hostname == NULL  )
+
+    /*
+     * And finally copy the redirection mappings
+     */
+    elements = apr_table_elts(add->redirection_map);
+    if( elements->nelts == 0 )
     {
-        ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsAuthServer" );
-        return HTTP_INTERNAL_SERVER_ERROR;
+        elements = apr_table_elts(base->redirection_map);
     }
 
-    if( conf->urs_auth_path == NULL  )
+    if( elements->nelts > 0 )
     {
-        ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsAuthPath" );
-        return HTTP_INTERNAL_SERVER_ERROR;
+        int i;
+        const apr_table_entry_t*  entry;
+
+        entry = (const apr_table_entry_t*) elements->elts;
+
+        for( i = 0; i < elements->nelts; ++i )
+        {
+            const char* key = entry[i].key;
+            const char* value = entry[i].val;
+
+            apr_table_set(conf->redirection_map, key, value);
+        }
     }
 
-    if( conf->urs_token_path == NULL  )
-    {
-        ap_log_perror( APLOG_MARK, APLOG_ERR, 0, p,
-            "UrsAuth: Missing configuration UrsTokenPath" );
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
 
-    return OK;
+    return conf;
 }
 
 
@@ -565,7 +585,7 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
     /*
      * Verify the format of the url.
      */
-    if( apr_uri_parse(cmd->temp_pool, arg, &conf->redirect_url) != APR_SUCCESS )
+    if( apr_uri_parse(cmd->pool, arg, &conf->redirect_url) != APR_SUCCESS )
     {
         return apr_psprintf(cmd->pool,
             "Invalid configuration for UrsRedirectUrl %s - cannot parse URL",
@@ -1000,12 +1020,6 @@ static void register_hooks(apr_pool_t *p)
 
 
     /*
-     * Hook used to verify that the necessary configuration has been set.
-     */
-    ap_hook_post_config(auth_urs_post_config, NULL, NULL, APR_HOOK_MIDDLE);
-
-
-    /*
      * Hook used to capture and redirect the URS auth redirection
      */
     ap_hook_post_read_request(auth_urs_post_read_request_redirect, NULL, NULL, APR_HOOK_MIDDLE);
@@ -1034,7 +1048,7 @@ module AP_MODULE_DECLARE_DATA auth_urs_module =
     create_auth_urs_dir_config,
     merge_auth_urs_dir_config,
     create_auth_urs_svr_config,
-    NULL, /* server configuration cannot be inherited */
+    merge_auth_urs_srv_config,
     auth_urs_cmds,
     register_hooks
 };

@@ -459,7 +459,6 @@ int auth_urs_check_user_id(request_rec *r)
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
         "UrsAuth: Required to authenticate access to %s", r->uri );
 
-    sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
     dconf = ap_get_module_config(r->per_dir_config, &auth_urs_module );
 
     if( dconf->client_id == NULL || dconf->redirect_url.hostname == NULL
@@ -467,6 +466,16 @@ int auth_urs_check_user_id(request_rec *r)
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Not configured correctly for location %s", r->uri );
+        return HTTP_INTERNAL_SERVER_ERROR;
+    }
+    
+    sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
+    if( sconf == NULL || sconf->session_store_path == NULL 
+        || sconf->urs_auth_path == NULL || sconf->urs_token_path == NULL
+        || sconf->urs_auth_server.is_initialized != 1 )
+    {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: Invalid server configuration for location %s", r->uri );
 
         return HTTP_INTERNAL_SERVER_ERROR;
     }
