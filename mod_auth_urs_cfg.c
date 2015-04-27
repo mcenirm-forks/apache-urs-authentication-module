@@ -544,7 +544,7 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
 
         if( p == NULL )
         {
-            apr_table_setn(sconf->redirection_map,
+            apr_table_set(sconf->redirection_map,
                 conf->redirect_url.path, conf->authorization_group);
         }
         else if( strcasecmp(p, conf->authorization_group) != 0 )
@@ -612,7 +612,7 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
 
         if( p == NULL )
         {
-            apr_table_setn(sconf->redirection_map,
+            apr_table_set(sconf->redirection_map,
                 conf->redirect_url.path, conf->authorization_group);
         }
         else if( strcasecmp(p, conf->authorization_group) != 0 )
