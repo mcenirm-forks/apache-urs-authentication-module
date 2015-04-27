@@ -15,9 +15,7 @@ limitations under the License.
 
 To download source code:
 
-> git clone https://<username>@git.earthdata.nasa.gov/scm/aam/apache-urs-authentication-module.git aam
-
-where <username> is your URS user id. You will also be prompted to enter your URS password.
+> git clone https://git.earthdata.nasa.gov/scm/aam/apache-urs-authentication-module.git aam
 
 To build and install, use apxs in the source directory:
 
