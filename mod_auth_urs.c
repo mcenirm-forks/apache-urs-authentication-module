@@ -103,16 +103,34 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     int             status;
     apr_uri_t       url;
 
+    char*           p;
 
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
 
 
     /*
-     * Check to see if this request is a redirection URL.
-     * If so, we must handle it, otherwise we decline and allow
+     * Check to see if this request is a redirection URL. To determine this,
+     * we check for an authorization group assigned to the host:path of the
+     * request. If found, we must handle it, otherwise we decline and allow
      * someone else to do so.
      */
-    cookie_name = apr_table_get(sconf->redirection_map, r->uri);
+    p = strchr(r->hostname, ':');
+    if( p == NULL )
+    {
+        p = apr_pstrcat(r->pool, r->hostname, ":", r->uri, NULL);
+    }
+    else
+    {
+        /* Strip out the port from the hostname */
+
+        p = apr_pstrcat(r->pool,
+            apr_pstrndup(r->pool, r->hostname, (p - r->hostname + 1)),
+            r->uri, NULL);
+    }
+
+    /* The authorization group name is used as the cookie name */
+
+    cookie_name = apr_table_get(sconf->redirection_map, p);
     if( cookie_name == NULL )
     {
         /* This is not a redirection point */
@@ -461,16 +479,17 @@ int auth_urs_check_user_id(request_rec *r)
 
     dconf = ap_get_module_config(r->per_dir_config, &auth_urs_module );
 
-    if( dconf->client_id == NULL || dconf->redirect_url.hostname == NULL
+    if( dconf->client_id == NULL
+        || apr_table_elts(dconf->redirect_urls)->nelts == 0
         || dconf->authorization_group == NULL)
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Not configured correctly for location %s", r->uri );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-    
+
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    if( sconf == NULL || sconf->session_store_path == NULL 
+    if( sconf == NULL || sconf->session_store_path == NULL
         || sconf->urs_auth_path == NULL || sconf->urs_token_path == NULL
         || sconf->urs_auth_server.is_initialized != 1 )
     {
@@ -573,6 +592,9 @@ int auth_urs_check_user_id(request_rec *r)
         char*  url;
         char*  buffer;
         int    buflen;
+        const char* host;
+        apr_uri_t*  redirect_url;
+
 
         /*
          * This is a special case. If authenticate has been explicitly
@@ -718,7 +740,8 @@ int auth_urs_check_user_id(request_rec *r)
         /*
          * We must record the original request URL so we can redirect the client
          * back there afterwards. This will be stored in the 'state' query parameter.
-         * First reconstruct the original URL.
+         * First reconstruct the original URL. It is actually not very easy to
+         * reconstruct the original request in it's entirety!
          */
         if( ap_is_default_port(ap_get_server_port(r), r) )
         {
@@ -754,6 +777,24 @@ int auth_urs_check_user_id(request_rec *r)
          * We must url encode the query parameters (even the base64 encoded URL, which can
          * contain a '/').
          */
+        /* First, look up the redirect URL for the request hostname */
+
+        host = r->hostname;
+        if( strchr(host, ':') != NULL )
+        {
+            host = apr_pstrndup(r->pool, r->hostname, strchr(host, ':') - r->hostname);
+        }
+        redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
+        if( redirect_url == NULL )
+        {
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: No redirect URL configured for host %s and path %s",
+                r->hostname, r->uri);
+            return HTTP_BAD_REQUEST;
+        }
+
+        /* Now construct the redirect URL */
+
         buffer = apr_psprintf(r->pool,
             "%s://%s%s%s%s%sclient_id=%s&response_type=code&redirect_uri=%s%%3A%%2F%%2F%s%s&state=%s",
             sconf->urs_auth_server.scheme, sconf->urs_auth_server.hostinfo,
@@ -762,8 +803,8 @@ int auth_urs_check_user_id(request_rec *r)
             dconf->splash_disable ? "splash=false&" : "",
             dconf->auth401_enable ? "app_type=401&" : "",
             url_encode(r, dconf->client_id),
-            dconf->redirect_url.scheme, url_encode(r, dconf->redirect_url.hostinfo),
-            url_encode(r, dconf->redirect_url.path),
+            redirect_url->scheme, url_encode(r, redirect_url->hostinfo),
+            url_encode(r, redirect_url->path),
             url_encode(r, buffer) );
 
 
@@ -911,18 +952,38 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
 {
     auth_urs_svr_config*    sconf = NULL;
 
+    const char*             host;
+    apr_uri_t*              redirect_url;
+
     apr_table_t*            headers;
     char*                   body;
     int                     status;
-
     json*                   json;
 
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
+
+    /* Get the redirect URL for the request hostname */
+
+    host = r->hostname;
+    if( strchr(host, ':') != NULL )
+    {
+        host = apr_pstrndup(r->pool, r->hostname, strchr(host, ':') - r->hostname);
+    }
+    redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
+    if( redirect_url == NULL )
+    {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: No redirect URL configured for host %s and path %s",
+            r->hostname, r->uri);
+        return HTTP_BAD_REQUEST;
+    }
 
 
     /*
      * Perform the token exchange. The only custom header we need is the
      * authorization code. The body contains the rest of the information.
+     * For the redirect-url, we just build it up from the request (since this
+     * was a request to the redirect URL)
      */
     headers = apr_table_make(r->pool, 10);
     apr_table_setn(headers, "Authorization",
@@ -931,9 +992,9 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
     body = apr_psprintf(r->pool,
         "grant_type=authorization_code&code=%s&redirect_uri=%s%%3A%%2F%%2F%s%s",
         url_encode(r, get_query_param(r, "code")),
-        dconf->redirect_url.scheme,
-        url_encode(r, dconf->redirect_url.hostinfo),
-        url_encode(r, dconf->redirect_url.path) );
+        redirect_url->scheme,
+        url_encode(r, redirect_url->hostinfo),
+        url_encode(r, redirect_url->path) );
 
     status = http_post(r, &sconf->urs_auth_server, sconf->urs_token_path, headers, &body);
     if( status != HTTP_OK )
@@ -1286,6 +1347,3 @@ apr_status_t auth_urs_post_body_filter( ap_filter_t* f, apr_bucket_brigade* bb, 
 
     return APR_SUCCESS;
 }
-
-
-

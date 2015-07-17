@@ -319,9 +319,10 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
 
     /*
      * Initialize the user profile sub-process environment
-     * map.
+     * map and the redirection url/host map.
      */
     conf->user_profile_env = apr_table_make(p, 10);
+    conf->redirect_urls = apr_table_make(p, 10);
 
     return conf;
 }
@@ -390,15 +391,33 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
 
 
     /*
-     * Copy the redirection uri
+     * Copy the redirection uri map
      */
-    if( add->redirect_url.is_initialized )
+    elements = apr_table_elts(add->redirect_urls);
+    if( elements->nelts == 0 )
     {
-        apr_uri_parse(p, apr_uri_unparse(p, &add->redirect_url, 0), &conf->redirect_url);
+        elements = apr_table_elts(base->redirect_urls);
     }
-    else if( base->redirect_url.is_initialized )
+
+    if( elements->nelts > 0 )
     {
-        apr_uri_parse(p, apr_uri_unparse(p, &base->redirect_url, 0), &conf->redirect_url);
+        const apr_table_entry_t*  entry;
+
+        entry = (const apr_table_entry_t*) elements->elts;
+
+        for( i = 0; i < elements->nelts; ++i )
+        {
+            const char* key = entry[i].key;
+            apr_uri_t*  value = (apr_uri_t*) entry[i].val;
+
+            apr_uri_t* url = apr_pcalloc(p, sizeof(apr_uri_t));
+            apr_uri_parse(p, apr_uri_unparse(p, value, 0), url);
+
+            apr_table_setn(
+                conf->redirect_urls,
+                apr_pstrdup(p, key),
+                (char*) url);
+        }
     }
 
 
@@ -511,6 +530,9 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
     auth_urs_svr_config* sconf;
     auth_urs_dir_config* conf = config;
 
+    const apr_array_header_t* elements;
+
+
     conf->authorization_group = apr_pstrdup(cmd->pool, arg);
 
     while( arg[i] != '\0' )
@@ -526,37 +548,46 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
 
 
     /*
-     * Check to see if we can add this redirection URL to the server level
-     * redirection map. This is a mapping from the URL to the auth group,
-     * and must be unique across all configurations.
-     * We can only set this when both the group AND the URL have been set,
-     * but have no control over the order (and no post-config processing).
-     * Thus we must check in each setter method to see if the other one is
-     * set, and if so, update the map. Hence this code is duplicated in
-     * the other setter function (as is this comment!).
+     * Check to see if we there are any entries in the redirect-url map. If so,
+     * we must copy them all into the global authorization group/redirect-url
+     * map.
      */
     sconf = (auth_urs_svr_config*) ap_get_module_config(
             cmd->server->module_config, &auth_urs_module );
 
-    if( conf->redirect_url.path != NULL )
+    elements = apr_table_elts(conf->redirect_urls);
+    if( elements->nelts > 0 )
     {
-        const char* p = apr_table_get(sconf->redirection_map, conf->redirect_url.path);
+        const apr_table_entry_t*  entry;
 
-        if( p == NULL )
-        {
-            apr_table_set(sconf->redirection_map,
-                conf->redirect_url.path, conf->authorization_group);
-        }
-        else if( strcasecmp(p, conf->authorization_group) != 0 )
-        {
-            /* A redirection point associated with more than one group */
+        entry = (const apr_table_entry_t*) elements->elts;
 
-            return apr_psprintf(cmd->pool,
-                "Invalid configuration for UrsRedirectUrl %s and UrsAuthGroup %s"
-                " - redirection url already assigned to group %s",
-                conf->redirect_url.path, conf->authorization_group, p);
+        for( i = 0; i < elements->nelts; ++i )
+        {
+            const char* host = entry[i].key;
+            apr_uri_t*  url = (apr_uri_t*) entry[i].val;
+
+            const char* key = apr_pstrcat(cmd->temp_pool, host, ":", url->path, NULL);
+            const char* p = apr_table_get(sconf->redirection_map, key);
+
+            if( p == NULL )
+            {
+                apr_table_set(sconf->redirection_map, key, conf->authorization_group);
+            }
+            else if( strcasecmp(p, conf->authorization_group) != 0 )
+            {
+                /* A redirection point associated with more than one group */
+
+                return apr_psprintf(cmd->pool,
+                    "Invalid configuration for UrsRedirectUrl %s and UrsAuthGroup %s"
+                    " - redirection url already assigned to group %s",
+                    key, conf->authorization_group, p);
+            }
+
         }
     }
+
+
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authorization group set to %s", arg );
@@ -576,44 +607,71 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
  * @param arg our directive parameters
  * @return NULL on success, an error essage otherwise
  */
-static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *arg)
+static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *host, const char* redirect)
 {
     auth_urs_svr_config*    sconf;
     auth_urs_dir_config*    conf = config;
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: set_redirect_url %s | %s | %s | %d",
+        host, redirect, cmd->server->server_hostname, cmd->server->port);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: REDIRECT %s   %s",
+        host, redirect );
+    if( redirect == NULL )
+    {
+        redirect = host;
+        host = cmd->server->server_hostname;
+        if( strchr(host, ':') != NULL )
+        {
+            host = apr_pstrndup(cmd->pool, host, strchr(host, ':') - host);
+        }
+    }
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: REDIRECT %s   %s",
+        host, redirect );
 
 
     /*
      * Verify the format of the url.
      */
-    if( apr_uri_parse(cmd->pool, arg, &conf->redirect_url) != APR_SUCCESS )
+    apr_uri_t* redirect_url = apr_pcalloc(cmd->pool, sizeof(apr_uri_t));
+    if( apr_uri_parse(cmd->pool, redirect, redirect_url) != APR_SUCCESS )
     {
         return apr_psprintf(cmd->pool,
             "Invalid configuration for UrsRedirectUrl %s - cannot parse URL",
-            arg);
+            redirect);
     }
 
 
     /*
+     * Add the redirection url and hostname to the map.
+     */
+    apr_table_setn(conf->redirect_urls, apr_pstrdup(cmd->pool, host), (const char*) redirect_url);
+
+
+    /*
      * Check to see if we can add this redirection URL to the server level
-     * redirection map. This is a mapping from the URL to the auth group,
-     * and must be unique across all configurations.
-     * We can only set this when both the group AND the URL have been set,
-     * but have no control over the order (and no post-config processing).
-     * Thus we must check in each setter method to see if the other one is
-     * set, and if so, update the map. Hence this code is duplicated in
-     * the other setter function (as is this comment!).
+     * redirection/authorization group map. This is a mapping from the
+     * redirect URL to the authorization group (which determines a specific
+     * set of client id/username/password values).
+     * We can only set this if the authorization group has already been set
+     * for this directory, but have no control over the order in which the
+     * configuration is set (and no post-config processing). Thus we have
+     * similar code in the authorization group configuration setter.
      */
     sconf = (auth_urs_svr_config*) ap_get_module_config(
             cmd->server->module_config, &auth_urs_module );
 
     if( conf->authorization_group != NULL )
     {
-        const char* p = apr_table_get(sconf->redirection_map, conf->redirect_url.path);
+        const char* key = apr_pstrcat(cmd->temp_pool, host, ":", redirect_url->path, NULL);
+        const char* p = apr_table_get(sconf->redirection_map, key);
 
         if( p == NULL )
         {
-            apr_table_set(sconf->redirection_map,
-                conf->redirect_url.path, conf->authorization_group);
+            apr_table_set(sconf->redirection_map, key, conf->authorization_group);
         }
         else if( strcasecmp(p, conf->authorization_group) != 0 )
         {
@@ -622,13 +680,13 @@ static const char *set_redirect_url(cmd_parms *cmd, void *config, const char *ar
             return apr_psprintf(cmd->pool,
                 "Invalid configuration for UrsRedirectUrl %s and UrsAuthGroup %s"
                 " - redirection url already assigned to group %s",
-                conf->redirect_url.path, conf->authorization_group, p);
+                key, conf->authorization_group, p);
         }
     }
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
-        "UrsAuth: Application redirection URL set to %s://%s%s",
-        conf->redirect_url.scheme, conf->redirect_url.hostinfo, conf->redirect_url.path );
+        "UrsAuth: Application redirection URL for %s set to %s://%s%s",
+        host, redirect_url->scheme, redirect_url->hostinfo, redirect_url->path );
 
     return NULL;
 }
@@ -947,7 +1005,7 @@ static const command_rec auth_urs_cmds[] =
                     OR_AUTHCFG,
                     "Set the user for unauthenticated access" ),
 
-    AP_INIT_TAKE1( "UrsRedirectUrl",
+    AP_INIT_TAKE12( "UrsRedirectUrl",
                     set_redirect_url,
                     NULL,
                     OR_AUTHCFG,
@@ -1052,4 +1110,3 @@ module AP_MODULE_DECLARE_DATA auth_urs_module =
     auth_urs_cmds,
     register_hooks
 };
-
