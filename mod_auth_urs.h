@@ -64,8 +64,13 @@ typedef struct auth_urs_svr_config_t
     char*       urs_token_path;
 
     /**
-     * A table of redirection URIs.
-     *
+     * A table of redirection URIs. The key is a host:path string (no port),
+     * and the value is the authorization group. This is not configured
+     * explicitly - it is built up from the directory level configuration.
+     * The path is the simply the URL portion of the redirection url for
+     * the given hostname. The authorization group is a simple name (also
+     * used to name the session cookie) that represents a set of directories
+     * that can all be accessed with the same login.
      */
     apr_table_t* redirection_map;
 
@@ -109,9 +114,12 @@ typedef struct auth_urs_dir_config_t
     char*       anonymous_user;
 
     /**
-     * The application redirection URL
+     * The application redirection URLs. These can be configured on a
+     * per-hostname basis (for server aliases). The key is the server name,
+     * and the value is the parsed redirct-url.
      */
-    apr_uri_t   redirect_url;
+    apr_table_t* redirect_urls;
+
 
     /**
      * The idle timeout on a session. If a session has not
@@ -546,4 +554,3 @@ int ssl_read(request_rec* r, ssl_connection *c, char* buffer, int bufsize);
  * @return the number of bytes written, or negative error number
  */
 int ssl_write(request_rec* r, ssl_connection *c, char* buffer, int bufsize );
-
