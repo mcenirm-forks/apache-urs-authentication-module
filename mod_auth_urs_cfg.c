@@ -26,6 +26,10 @@
 #include    "apr_lib.h"
 #include    "apr_strings.h"
 
+#ifdef USE_CRYPTO
+#include    "apr_crypto.h"
+#endif
+
 #include    "httpd.h"
 #include    "http_config.h"
 #include    "http_core.h"
@@ -946,6 +950,26 @@ static const char *set_access_error_parameter(cmd_parms *cmd, void *config, cons
 
 
 
+static int urs_module_init(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s)
+{
+    int rv;
+#ifdef USE_CRYPTO
+    rv = apr_crypto_init(p);
+    if (rv != APR_SUCCESS)
+    {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to initialize crypto library");
+        abort();
+    }
+
+    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+        "UrsAuth: Crypto library initialized" );
+
+#endif
+    return rv;
+}
+
+
 /**
  * Module configuration records.
  */
@@ -1062,8 +1086,6 @@ static const command_rec auth_urs_cmds[] =
     { NULL }
 };
 
-
-
 /*
  * Hook function used to register our module.
  * @param p a pool from which memory can be allocated.
@@ -1093,6 +1115,12 @@ static void register_hooks(apr_pool_t *p)
      * Filter used to reconstruct the body of a POST request
      */
     ap_register_input_filter( "UrsPostReconstruct", auth_urs_post_body_filter, NULL, AP_FTYPE_CONTENT_SET);
+
+
+    /*
+     * Hook used to perform any post-startup initialization.
+     */
+    ap_hook_post_config(urs_module_init, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 
