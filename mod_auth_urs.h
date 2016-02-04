@@ -599,3 +599,24 @@ int ssl_read(request_rec* r, ssl_connection *c, char* buffer, int bufsize);
  * @return the number of bytes written, or negative error number
  */
 int ssl_write(request_rec* r, ssl_connection *c, char* buffer, int bufsize );
+
+
+
+/****************************************
+ * Crypto declarations
+ ***************************************/
+#ifdef USE_CRYPTO
+
+#define URS_CRYPTO_KEY "urs_crypto_context"
+
+apr_status_t encrypt_block(
+        const unsigned char* message, apr_size_t len,
+        unsigned char** out, apr_size_t* outlen,
+        request_rec* r);
+
+apr_status_t decrypt_block(
+        const unsigned char* in, apr_size_t inlen,
+        unsigned char** message, apr_size_t* len,
+        request_rec* r);
+#endif
+

@@ -380,12 +380,8 @@ const char* create_urs_cookie_id(request_rec *r)
  */
 const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_data)
 {
-    auth_urs_svr_config*    conf;
-    char*                   content = NULL;
+    char *content = "";
     const apr_array_header_t*   elements;
-
-
-    conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
 
 
     /* Write the session data into a string */
@@ -399,7 +395,6 @@ const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_dat
 
         elements = apr_table_elts(session_data);
         entry = (const apr_table_entry_t*) elements->elts;
-        content = "";
 
         /*
          * Iterate through each key/value pair and add to the combined string.
@@ -417,6 +412,27 @@ const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_dat
 
 
         ++content; /* Discard the first '&' */
+
+#ifdef USE_CRYPTO
+
+        /* Encrypt the session data */
+
+        if (1) {
+            int rv;
+            unsigned char* packet = NULL;
+            apr_size_t len;
+
+            /* Encrypt the data - this produces binary */
+
+            rv = encrypt_block(content, strlen(content), &packet, &len, r);
+            if (rv != APR_SUCCESS) return "";
+
+            /* Now base64 encode it */
+
+            content = apr_palloc(r->pool, apr_base64_encode_len(len) + 1);
+            apr_base64_encode(content, (const char *) packet, len);
+        }
+#endif
     }
 
     return content;
@@ -435,8 +451,33 @@ const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_dat
  */
 apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_table_t* session_data )
 {
-    char *p = apr_pstrdup(r->pool, cookie);
+    char *p;
     char *e, *s;
+
+#ifdef USE_CRYPTO
+
+    /* Decrypt the packet */
+
+    if (1) {
+        int rv;
+        unsigned char *decrypted = NULL;
+        unsigned char *packet = NULL;
+        apr_size_t len, decryptedLen;
+
+        /* Base64 decode the data first */
+
+        packet = apr_palloc(r->pool, apr_base64_decode_len(cookie));
+        len = apr_base64_decode(packet, cookie);
+
+        /* Now decrypt it */
+
+        rv = decrypt_block(packet, len, &decrypted, &decryptedLen, r);
+        if (rv != APR_SUCCESS) return rv;
+        cookie = decrypted;
+    }
+#endif
+
+    p = apr_pstrdup(r->pool, cookie);
 
     do
     {

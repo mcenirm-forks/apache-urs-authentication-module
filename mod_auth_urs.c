@@ -391,6 +391,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
          * We have been configured to save session data directly in the cookie.
          * The session data must be encrypted and encoded.
          */
+         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Creating encrypted cookie");
         cookie_value = create_urs_encrypted_cookie(r, session_data);
 
         /*
@@ -442,13 +444,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
  */
 int auth_urs_post_read_request_logout(request_rec *r)
 {
-    int len;
-    auth_urs_svr_config*    sconf = NULL;
-
-    char*                   cookie_name = NULL;
-    char*                   cookie_value = NULL;
-
-    sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
+    char *cookie_name = NULL;
+    char *cookie_value = NULL;
 
 
     /*
@@ -613,6 +610,8 @@ int auth_urs_check_user_id(request_rec *r)
                 {
                     session_data = NULL;
                 }
+                ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                    "UrsAuth: Loaded session data" );
             }
         }
 

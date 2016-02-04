@@ -25,6 +25,11 @@
 #include    "apr_base64.h"
 #include    "apr_lib.h"
 #include    "apr_strings.h"
+#include    "apr_uuid.h"
+
+#ifdef USE_CRYPTO
+#include    "apr_crypto.h"
+#endif
 
 #include    "httpd.h"
 #include    "http_config.h"
@@ -514,7 +519,7 @@ static const char *set_session_passphrase(cmd_parms *cmd, void *config, const ch
     conf->session_passphrase = apr_pstrdup(cmd->pool, arg);
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
-        "UrsAuth: Session passphrase configured - encrypted cookie sessions enabled.", arg );
+        "UrsAuth: Session passphrase configured - encrypted cookie sessions enabled.");
 
     return NULL;
 }
@@ -817,8 +822,6 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 {
     auth_urs_dir_config* conf = config;
 
-    char* p;
-
     /*
     * Convert to a number and verify.
     */
@@ -855,8 +858,6 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 static const char *set_auth401_enable(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-
-    char* p;
 
     /*
     * Convert to a number and verify.
@@ -993,6 +994,108 @@ static const char *set_access_error_parameter(cmd_parms *cmd, void *config, cons
     return NULL;
 }
 
+
+
+/**
+ * Initialization function for the URS module.
+ * Currently this just sets up the crypto library.
+ */
+static int urs_module_init(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s)
+{
+    int rv = APR_SUCCESS;
+
+#ifdef USE_CRYPTO
+
+    const apr_crypto_driver_t *driver = NULL;
+    const apu_err_t *err = NULL;
+    apr_crypto_t *context = NULL;
+
+    void *data = NULL;
+
+
+
+    /* One-time initialization check */
+
+    apr_pool_userdata_get(&data, "urs-crypto-init", s->process->pool);
+    if (data == NULL) {
+        apr_pool_userdata_set((const void*)1, "urs-crypto-init",
+            apr_pool_cleanup_null, s->process->pool);
+        return APR_SUCCESS;
+    }
+
+
+    /* Initialize the crypto library */
+
+    rv = apr_crypto_init(p);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to initialize crypto library");
+        return rv;
+    }
+/*
+    ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, "Library initialized");
+*/
+
+    /* Get the driver info. We currently hard-code the driver name. */
+
+    rv = apr_crypto_get_driver(&driver, APU_CRYPTO_RECOMMENDED_DRIVER, NULL, &err, p);
+    if (rv == APR_EREINIT) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING, rv, s,
+            "UrsAuth: Crypto library already initialized");
+        rv = APR_SUCCESS;
+    }
+
+    if (rv == APR_ENOTIMPL) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Crypto library '%s' not implemented",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+
+    if (rv != APR_SUCCESS && err) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to load crypto library '%s': %s (%s)",
+            APU_CRYPTO_RECOMMENDED_DRIVER, err->msg, err->reason);
+        return rv;
+    }
+
+    if (rv != APR_SUCCESS || !driver) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Crypto library '%s' not loaded",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+/*
+    ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, "Driver loaded");
+*/
+
+    /* Create an encryption context */
+
+    rv = apr_crypto_make(&context, driver, NULL, p);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to create encryption context for crypto library '%s'",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+
+
+    /* Save the encryption context */
+
+    apr_pool_userdata_set(
+        (const void *) context, URS_CRYPTO_KEY,
+        apr_pool_cleanup_null, s->process->pool);
+    ap_log_error(APLOG_MARK, APLOG_INFO, rv, s, "UrsAuth: Crypto context created");
+
+
+/*
+    encrypt_block("This is my message to encrypt", 29, &packet, &packetLen, NULL, s);
+    decrypt_block(packet, packetLen, out, outlen, NULL, s);
+*/
+#endif
+
+    return rv;
+}
 
 
 /**
@@ -1154,6 +1257,12 @@ static void register_hooks(apr_pool_t *p)
      * Filter used to reconstruct the body of a POST request
      */
     ap_register_input_filter( "UrsPostReconstruct", auth_urs_post_body_filter, NULL, AP_FTYPE_CONTENT_SET);
+
+
+    /*
+     * Hook used to perform any post-startup initialization.
+     */
+    ap_hook_post_config(urs_module_init, NULL, NULL, APR_HOOK_MIDDLE);
 }
 
 
