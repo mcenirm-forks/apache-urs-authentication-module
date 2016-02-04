@@ -94,6 +94,20 @@ typedef struct auth_urs_dir_config_t
      */
     char*       authorization_group;
 
+
+    /**
+     * The domain to be used for cookie configuration. This is only used
+     * when encrypted cookie sessions are active.
+     */
+    char*       cookie_domain;
+
+
+    /**
+     * The passphrase to be used for encrypted sessions.
+     */
+    char*       session_passphrase;
+
+
     /**
      * The client ID assigned when the application was registered
      * for this particular location.
@@ -387,6 +401,37 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie);
 
 
 
+/**
+ * Creates an encrypted session cookie
+ *
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param session_data the current session data that should be stored.
+ * @return a pointer to the cookie value containing the encrypted and encoded
+ *          session data.
+ */
+const char* create_urs_encrypted_cookie(
+        request_rec *r,
+        apr_table_t* session_data);
+
+
+
+
+/**
+ * Reads an encrypted session cookie into a session data table.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param cookie the cookie value (the encrypted session data)
+ * @param session_data a table into which all the session data
+ *          will be placed.
+ * @return APR_SUCCESS on success.
+ */
+apr_status_t read_urs_encrypted_cookie(
+        request_rec *r,
+        const char* cookie,
+        apr_table_t* session_data );
+
+
 /****************************************
  * HTTP declarations
  ***************************************/
@@ -424,13 +469,13 @@ char* get_cookie(
  * Encode a URL string.
  * This function maps reserved characters in a string to their % equivalent.
  *
- * @param r the client request
+ * @param pool the pool from which to allocate memory
  * @param uri the URI to encode.
  * @return a pointer to the encoded string. This can be the same
  *         string if no encoding is necessary.
  */
 const char* url_encode(
-        request_rec *r,
+        apr_pool_t *pool,
         const char* uri );
 
 
@@ -438,13 +483,13 @@ const char* url_encode(
  * Decode a URL string.
  * This function maps % encoded characters back to their string equivalent
  *
- * @param r the client request
+ * @param pool the pool from which to allocate memory
  * @param uri the URI to decode.
  * @return a pointer to the decoded string. This can be the same
  *         string if no decoding is necessary.
  */
 const char* url_decode(
-        request_rec *r,
+        apr_pool_t *pool,
         const char* uri );
 
 

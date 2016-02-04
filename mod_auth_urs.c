@@ -56,7 +56,6 @@
  * Internal method declarations.
  *
  */
-static char* replace_cookie(request_rec* r, const char* cookies, const char* cookie_name, const char* cookie_value );
 static int validate_session(request_rec *r, const char* cookie, apr_table_t* session_data );
 static int retrieve_user_profile(request_rec *r,auth_urs_dir_config* dconf, const char* access_token,const char* endpoint,json** profile );
 static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char** access_token, const char** endpoint);
@@ -153,12 +152,12 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
         return HTTP_FORBIDDEN;
     }
-    state = url_decode(r, state);
+    state = url_decode(r->pool, state);
 
 
     /*
      * Reconstruct the original URL from the state query parameter.
-     * We are going to use this to generate a sub request for the
+     * We are going to use this to generate a sub-request for the
      * purposes of extract the appropriate per-directory
      * configuration information we need for the token exchange.
      * Note that we do not explicitly call ap_destroy_sub_req for
@@ -203,6 +202,9 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
 
     /*
+     * We have now established that this request is for an application
+     * redirect url. The user has been sent here as a result of authenticating
+     * with URS.
      * Check the result of the user authentication. We expect to find
      * either a 'code' or a 'error' query parameter.
      */
@@ -239,7 +241,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
                 error_url = apr_pstrcat( r->pool, dconf->access_error_url,
                         qp, dconf->access_error_parameter, "=",
-                        url_encode(r, url_str), NULL );
+                        url_encode(r->pool, url_str), NULL );
             }
 
             /*
@@ -305,8 +307,9 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
 
     /*
-     * Add user profile information to the session data. Anything configured
-     * to be part of the subprocess environment must be added.
+     * Add the configured user profile information to the session data.
+     * Anything configured to be part of the subprocess environment must be
+     * added.
      */
     elements = apr_table_elts(dconf->user_profile_env);
 
@@ -330,47 +333,88 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
 
     /*
-     * Generate a unique cookie ID.
+     * Save the session. Depending upon configuration, there are two ways
+     * in which we can do this. The first is to use a local session store -
+     * save the session data in a file in a local directory. The filename
+     * is identified using a unique ID that is saved in a cookie.
+     * The second is to save the session data in a cookie directly. This
+     * requires encrypting the session data.
      */
-    cookie_value = create_urs_cookie_id(r);
-    if( cookie_value == NULL )
+    if (dconf->session_passphrase == NULL)
     {
-        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
-            "UrsAuth: Failed to create new cookie" );
-        return HTTP_INTERNAL_SERVER_ERROR;
+        /*
+         * Generate a unique cookie ID.
+         */
+        cookie_value = create_urs_cookie_id(r);
+        if( cookie_value == NULL )
+        {
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to create new cookie" );
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+
+
+        /*
+         * Set the cookie that we use to track the session for this user. We
+         * put it in err_headers_out so it is sure to be sent back to the
+         * user, even on an internal redirect.
+         * We set the path to '/', so it will be returned for all accesses to
+         * this server. This is not ideal, but without additional
+         * configuration, we have no way of knowing exactly what paths it
+         * should be valid for - for example, the first request for a protected
+         * resource could be some way inside the lowest level directory that
+         * is to be protected.
+         */
+        apr_table_set(r->err_headers_out,
+            "Set-Cookie",
+            apr_pstrcat(
+                r->pool, cookie_name, "=", cookie_value, "; Path=/", NULL));
+
+
+        /*
+         * Write the session file and cache it on the connection in case
+         * of sub-requests or persistent connections.
+         */
+        if( write_urs_session(r, cookie_value, session_data) != APR_SUCCESS )
+        {
+            ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to create new session for %s", cookie_value );
+            return HTTP_INTERNAL_SERVER_ERROR;
+        }
+        apr_table_setn(r->connection->notes,
+            apr_pstrdup(r->connection->pool, cookie_value), (char*) session_data);
     }
-
-
-
-    /*
-     * Set the cookie that we use to track the session for this user. We
-     * put it in err_headers_out so it is sure to be sent back to the
-     * user, even on an internal redirect.
-     * We set the path to '/', so it will be returned for all accesses to
-     * this server. This is not ideal, but without additional
-     * configuration, we have no way of knowing exactly what paths it
-     * should be valid for - for example, the first request for a protected
-     * resource could be some way inside the lowest level directory that
-     * is to be protected.
-     */
-    apr_table_set(r->err_headers_out,
-        "Set-Cookie",
-        apr_pstrcat(r->pool, cookie_name, "=", cookie_value, "; Path=/", NULL) );
-
-
-    /*
-     * Write the session file and cache it on the connection in case
-     * of sub-requests or persistent connections.
-     */
-    if( write_urs_session(r, cookie_value, session_data) != APR_SUCCESS )
+    else
     {
-        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
-            "UrsAuth: Failed to create new session for %s", cookie_value );
-        return HTTP_INTERNAL_SERVER_ERROR;
-    }
-    apr_table_setn(r->connection->notes,
-        apr_pstrdup(r->connection->pool, cookie_value), (char*) session_data);
+        /*
+         * We have been configured to save session data directly in the cookie.
+         * The session data must be encrypted and encoded.
+         */
+        cookie_value = create_urs_encrypted_cookie(r, session_data);
 
+        /*
+         * Set the cookie that we use to track the session for this user. We
+         * put it in err_headers_out so it is sure to be sent back to the
+         * user, even on an internal redirect. Not that one of the primary
+         * reasons for storing session data in the cookie is to make cross-
+         * application authentication easier (for systems that do not or cannot
+         * shared a local directory for session storage). In this case, we
+         * should provide a configurable cookie domain. If one is not provided,
+         * then only different applications within a single domain will be
+         * supported.
+         */
+        if (dconf->cookie_domain == NULL) {
+            apr_table_set(r->err_headers_out,
+                "Set-Cookie",
+                apr_pstrcat(r->pool, cookie_name, "=", cookie_value, "; Path=/", NULL) );
+        }
+        else {
+            apr_table_set(r->err_headers_out,
+                "Set-Cookie",
+                apr_pstrcat(r->pool, cookie_name, "=", cookie_value, "; Path=/; Domain=", dconf->cookie_domain, NULL) );
+        }
+    }
 
 
     /*
@@ -390,7 +434,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
  * Early request processing hook designed to provide a logout
  * capability. This is intended to be transparent to the
  * request processing, so this method always returns the
- * DECLINE status.
+ * DECLINE status. Note that this option is not supported for
+ * encrypted session cookies.
  *
  * @param r a pointer to the request_rec structure
  * @return DECLINED
@@ -517,6 +562,9 @@ int auth_urs_check_user_id(request_rec *r)
      */
     if( cookie != NULL )
     {
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+            "UrsAuth: Cookie found - verifying" );
+
         /*
          * Check to see if we have saved the session data in the
          * connection on a previous request (only works for persistent
@@ -534,28 +582,45 @@ int auth_urs_check_user_id(request_rec *r)
          session_data = (apr_table_t*) apr_table_get(r->connection->notes, cookie);
          if( session_data == NULL )
          {
-            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-                "UrsAuth: Session not found in connection cache. Loading from file" );
-
-            /*
-             * We don't have the session data cached, so load if
-             * back in from the session file. Note that all session
-             * data is allocated in the connection pool so we can
-             * persist it at the connection level.
-             */
             session_data = apr_table_make(r->connection->pool, 10);
 
-            if( read_urs_session(r, cookie, session_data) != APR_SUCCESS )
+            if (dconf->session_passphrase == NULL)
             {
-                session_data = NULL;
+                ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                    "UrsAuth: Session not found in connection cache - restoring from file" );
+
+                /*
+                 * We don't have the session data cached, so load if
+                 * back in from the session file. Note that all session
+                 * data is allocated in the connection pool so we can
+                 * persist it at the connection level.
+                 */
+                if( read_urs_session(r, cookie, session_data) != APR_SUCCESS )
+                {
+                    session_data = NULL;
+                }
+            }
+            else
+            {
+                ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                    "UrsAuth: Session not found in connection cache - restoring from cookie" );
+                /*
+                 * Session data is stored in the cookie, so decode it. Note that
+                 * because we cache the session table on the connection, it must
+                 * use the connection pool for memory allocations.
+                 */
+                if( read_urs_encrypted_cookie(r, cookie, session_data) != APR_SUCCESS )
+                {
+                    session_data = NULL;
+                }
             }
         }
 
 
         /*
-         * If we loaded the session data, then verify it. If verification
-         * fails, or we failed to load the session at all, then
-         * clean up.
+         * If we loaded the session data, then validate it. If validation
+         * fails, then flag the cookie for cleanup and make sure any session
+         * stored on the connection is removed.
          */
         if( session_data == NULL || !validate_session(r, cookie, session_data) )
         {
@@ -638,12 +703,16 @@ int auth_urs_check_user_id(request_rec *r)
              */
             if( expire_cookie )
             {
+                const char* domain = "/";
+                if (dconf->cookie_domain != NULL) domain = dconf->cookie_domain;
+
                 r = r->main == NULL ? r : r->main;
                 apr_table_set(r->err_headers_out,
                     "Set-Cookie",
                     apr_pstrcat(r->pool,
                         dconf->authorization_group,
-                        "=; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Path=/", NULL) );
+                        "=; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Domain=",
+                        domain, NULL) );
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Expired cookie %s", dconf->authorization_group );
             }
@@ -802,10 +871,10 @@ int auth_urs_check_user_id(request_rec *r)
             strchr(sconf->urs_auth_path, '?') == NULL ? "?" : "&",
             dconf->splash_disable ? "splash=false&" : "",
             dconf->auth401_enable ? "app_type=401&" : "",
-            url_encode(r, dconf->client_id),
-            redirect_url->scheme, url_encode(r, redirect_url->hostinfo),
-            url_encode(r, redirect_url->path),
-            url_encode(r, buffer) );
+            url_encode(r->pool, dconf->client_id),
+            redirect_url->scheme, url_encode(r->pool, redirect_url->hostinfo),
+            url_encode(r->pool, redirect_url->path),
+            url_encode(r->pool, buffer) );
 
 
         apr_table_setn(r->err_headers_out, "Location", buffer);
@@ -991,10 +1060,10 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
 
     body = apr_psprintf(r->pool,
         "grant_type=authorization_code&code=%s&redirect_uri=%s%%3A%%2F%%2F%s%s",
-        url_encode(r, get_query_param(r, "code")),
+        url_encode(r->pool, get_query_param(r, "code")),
         redirect_url->scheme,
-        url_encode(r, redirect_url->hostinfo),
-        url_encode(r, redirect_url->path) );
+        url_encode(r->pool, redirect_url->hostinfo),
+        url_encode(r->pool, redirect_url->path) );
 
     status = http_post(r, &sconf->urs_auth_server, sconf->urs_token_path, headers, &body);
     if( status != HTTP_OK )
@@ -1016,10 +1085,6 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
             "UrsAuth: Failed parsing json: %s", body );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-
-    /*!!! Potential security problem */
-/*    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,  */
-/*        "UrsAuth: Received json: %s", body );      */
 
     if( !json_has_member(json, "access_token" ) )
     {
@@ -1094,10 +1159,6 @@ static int retrieve_user_profile(
             "UrsAuth: Failed parsing json: %s", body );
         return HTTP_INTERNAL_SERVER_ERROR;
     }
-
-    /*!!! Potential security problem - this is for testing only */
-/*    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r, */
-/*            "UrsAuth: User profile: %s", body );  */
 
     return status;
 }
@@ -1218,73 +1279,6 @@ static int validate_session(request_rec *r, const char* cookie, apr_table_t* ses
 }
 
 
-
-/**
- * Replaces a cookie if it exists, adds it if it does not.
- *
- *
- * @param r a pointer to the request structure for the
- *          currently active request.
- * @param cookies the cookie string (my contain 0 or more cookies)
- * @param cookie_name the name of the cookie to update
- * @param cookie_value the new value for the cookie
- * @return a new string containing the replaced cookie
- */
-static char* replace_cookie( request_rec* r, const char* cookies, const char* cookie_name, const char* cookie_value )
-{
-    char* start;
-    char* end;
-
-    /*
-     * Special case of no existing cookies
-     */
-    if( cookies == NULL || cookies[0] == '\0' )
-    {
-        start = apr_psprintf(r->pool, "%s=%s", cookie_name, cookie_value);
-        return start;
-    }
-
-
-    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Replacing %s=%s in %s", cookie_name, cookie_value, cookies );
-
-    /*
-     * Find the start and end of the named cookie (if it does indeed exist
-     */
-    start = strstr(cookies, cookie_name);
-    if( start == NULL ||
-        (start > cookies && start[-1] != ' ') ||
-        (start[strlen(cookie_name)] != '=') )
-    {
-        /*
-         * The named cookie does not exist, so just append it.
-         */
-        start = apr_psprintf(r->pool, "%s; %s=%s", cookies, cookie_name, cookie_value);
-        return start;
-    }
-
-
-    /*
-     * We have a cookie that needs to be replaced. Find the
-     * end of it so we can chop it out. These algorithms are
-     * not particularly efficient.
-     */
-    end = strchr(start, ';');
-    start = apr_pstrndup(r->pool, cookies, (start - cookies));
-    if( end == NULL )
-    {
-        start = apr_psprintf(r->pool, "%s%s=%s", start, cookie_name, cookie_value);
-    }
-    else
-    {
-        start = apr_psprintf(r->pool, "%s%s=%s%s", start, cookie_name, cookie_value, end);
-    }
-    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: New cookie string: %s", start );
-
-
-    return start;
-}
 
 
 /************************************

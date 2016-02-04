@@ -218,7 +218,7 @@ char* get_cookie( request_rec* r, const char* cookie_name )
 
     if( all_cookies == NULL ) return NULL;
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Searching for cookie %s in cookie string: %s", cookie_name, all_cookies );
+        "UrsAuth: Searching for cookie '%s' in cookie string: %s", cookie_name, all_cookies );
 
     /*
      * We have some cookies. Look to see if we can find
@@ -261,12 +261,12 @@ char* get_cookie( request_rec* r, const char* cookie_name )
  * Encode a URL string.
  * This function maps reserved characters in a string to their % equivalent.
  *
- * @param r the client request
+ * @param pool the pool from which to allocate memory
  * @param uri the URI to encode.
  * @return a pointer to the encoded string. This can be the same
  *         string if no encoding is necessary.
  */
-const char* url_encode(request_rec *r, const char* uri)
+const char* url_encode(apr_pool_t* pool, const char* uri)
 {
     /*
      * Unreserved characters - these do not need to be encoded.
@@ -292,9 +292,7 @@ const char* url_encode(request_rec *r, const char* uri)
     while( *p )
     {
         if( strchr(unreserved_chars, *p) == NULL )
-        {
             len += 3;
-        }
         ++p;
     }
     if( len == 0 ) return uri;
@@ -305,7 +303,7 @@ const char* url_encode(request_rec *r, const char* uri)
     /*
      * Allocate memory for the encoded uri, and encode it.
      */
-    encoded = apr_pcalloc(r->pool, len + 1);
+    encoded = apr_pcalloc(pool, len + 1);
 
     p = uri;
     len = 0;
@@ -313,13 +311,9 @@ const char* url_encode(request_rec *r, const char* uri)
     while( *p )
     {
         if( strchr(unreserved_chars, *p) != NULL )
-        {
             encoded[len++] = *p;
-        }
         else
-        {
             len += sprintf(encoded + len, "%%%2X", *p);
-        }
         ++p;
     }
 
@@ -332,12 +326,12 @@ const char* url_encode(request_rec *r, const char* uri)
  * Decode a URL string.
  * This function maps % encoded characters back to their string equivalent
  *
- * @param r the client request
+ * @param pool the pool from which to allocate memory
  * @param uri the URI to decode.
  * @return a pointer to the decoded string.This can be the same
  *         string if no decoding is necessary.
  */
-const char* url_decode(request_rec *r, const char* uri)
+const char* url_decode(apr_pool_t* pool, const char* uri)
 {
     static const char* hex_map = "0123456789ABCDEF";
 
@@ -371,7 +365,7 @@ const char* url_decode(request_rec *r, const char* uri)
      * string will be shorter than the original, but we just allocate
      * one the same size.
      */
-    decoded = apr_pcalloc(r->pool, strlen(uri) + 1);
+    decoded = apr_pcalloc(pool, strlen(uri) + 1);
 
     p = uri;
     len = 0;

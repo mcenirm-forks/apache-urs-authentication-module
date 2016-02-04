@@ -319,7 +319,8 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
 
     /*
      * Initialize the user profile sub-process environment
-     * map and the redirection url/host map.
+     * map and the redirection url/host map. Everything else is nulled
+     * out by virtue of using calloc.
      */
     conf->user_profile_env = apr_table_make(p, 10);
     conf->redirect_urls = apr_table_make(p, 10);
@@ -354,6 +355,12 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
      */
     s = (add->authorization_group != NULL) ? add->authorization_group : base->authorization_group;
     if( s != NULL ) conf->authorization_group = apr_pstrdup(p, s);
+
+    s = (add->cookie_domain != NULL) ? add->cookie_domain : base->cookie_domain;
+    if( s != NULL ) conf->cookie_domain = apr_pstrdup(p, s);
+
+    s = (add->session_passphrase != NULL) ? add->session_passphrase : base->session_passphrase;
+    if( s != NULL ) conf->session_passphrase = apr_pstrdup(p, s);
 
     s = (add->client_id != NULL) ? add->client_id : base->client_id;
     if( s != NULL ) conf->client_id = apr_pstrdup(p, s);
@@ -466,6 +473,48 @@ static const char *set_client_id(cmd_parms *cmd, void *config, const char *arg)
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authentication client Id set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to set the cookie domain when it
+ * encounters our UrsCookieDomain configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_cookie_domain(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->cookie_domain = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Cookie domain set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to set the session passphrase when it
+ * encounters our UrsSessionPassphrase configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_session_passphrase(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->session_passphrase = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Session passphrase configured - encrypted cookie sessions enabled.", arg );
 
     return NULL;
 }
@@ -986,6 +1035,18 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the authorization group name" ),
+
+    AP_INIT_TAKE1( "UrsCookieDomain",
+                    set_cookie_domain,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the cookie domain value" ),
+
+    AP_INIT_TAKE1( "UrsSessionPassphrase",
+                    set_session_passphrase,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the session encryption passphrase" ),
 
     AP_INIT_TAKE1( "UrsClientId",
                     set_client_id,
