@@ -25,6 +25,11 @@
 #include    "apr_base64.h"
 #include    "apr_lib.h"
 #include    "apr_strings.h"
+#include    "apr_uuid.h"
+
+#ifdef USE_CRYPTO
+#include    "apr_crypto.h"
+#endif
 
 #ifdef USE_CRYPTO
 #include    "apr_crypto.h"
@@ -323,7 +328,8 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
 
     /*
      * Initialize the user profile sub-process environment
-     * map and the redirection url/host map.
+     * map and the redirection url/host map. Everything else is nulled
+     * out by virtue of using calloc.
      */
     conf->user_profile_env = apr_table_make(p, 10);
     conf->redirect_urls = apr_table_make(p, 10);
@@ -358,6 +364,12 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
      */
     s = (add->authorization_group != NULL) ? add->authorization_group : base->authorization_group;
     if( s != NULL ) conf->authorization_group = apr_pstrdup(p, s);
+
+    s = (add->cookie_domain != NULL) ? add->cookie_domain : base->cookie_domain;
+    if( s != NULL ) conf->cookie_domain = apr_pstrdup(p, s);
+
+    s = (add->session_passphrase != NULL) ? add->session_passphrase : base->session_passphrase;
+    if( s != NULL ) conf->session_passphrase = apr_pstrdup(p, s);
 
     s = (add->client_id != NULL) ? add->client_id : base->client_id;
     if( s != NULL ) conf->client_id = apr_pstrdup(p, s);
@@ -470,6 +482,48 @@ static const char *set_client_id(cmd_parms *cmd, void *config, const char *arg)
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authentication client Id set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to set the cookie domain when it
+ * encounters our UrsCookieDomain configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_cookie_domain(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->cookie_domain = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Cookie domain set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to set the session passphrase when it
+ * encounters our UrsSessionPassphrase configuration directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_session_passphrase(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+    conf->session_passphrase = apr_pstrdup(cmd->pool, arg);
+
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: Session passphrase configured - encrypted cookie sessions enabled.");
 
     return NULL;
 }
@@ -772,8 +826,6 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 {
     auth_urs_dir_config* conf = config;
 
-    char* p;
-
     /*
     * Convert to a number and verify.
     */
@@ -810,8 +862,6 @@ static const char *set_splash_disable(cmd_parms *cmd, void *config, const char *
 static const char *set_auth401_enable(cmd_parms *cmd, void *config, const char *arg)
 {
     auth_urs_dir_config* conf = config;
-
-    char* p;
 
     /*
     * Convert to a number and verify.
@@ -971,6 +1021,108 @@ static int urs_module_init(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server
 
 
 /**
+ * Initialization function for the URS module.
+ * Currently this just sets up the crypto library.
+ */
+static int urs_module_init(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s)
+{
+    int rv = APR_SUCCESS;
+
+#ifdef USE_CRYPTO
+
+    const apr_crypto_driver_t *driver = NULL;
+    const apu_err_t *err = NULL;
+    apr_crypto_t *context = NULL;
+
+    void *data = NULL;
+
+
+
+    /* One-time initialization check */
+
+    apr_pool_userdata_get(&data, "urs-crypto-init", s->process->pool);
+    if (data == NULL) {
+        apr_pool_userdata_set((const void*)1, "urs-crypto-init",
+            apr_pool_cleanup_null, s->process->pool);
+        return APR_SUCCESS;
+    }
+
+
+    /* Initialize the crypto library */
+
+    rv = apr_crypto_init(p);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to initialize crypto library");
+        return rv;
+    }
+/*
+    ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, "Library initialized");
+*/
+
+    /* Get the driver info. We currently hard-code the driver name. */
+
+    rv = apr_crypto_get_driver(&driver, APU_CRYPTO_RECOMMENDED_DRIVER, NULL, &err, p);
+    if (rv == APR_EREINIT) {
+        ap_log_error(APLOG_MARK, APLOG_WARNING, rv, s,
+            "UrsAuth: Crypto library already initialized");
+        rv = APR_SUCCESS;
+    }
+
+    if (rv == APR_ENOTIMPL) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Crypto library '%s' not implemented",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+
+    if (rv != APR_SUCCESS && err) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to load crypto library '%s': %s (%s)",
+            APU_CRYPTO_RECOMMENDED_DRIVER, err->msg, err->reason);
+        return rv;
+    }
+
+    if (rv != APR_SUCCESS || !driver) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Crypto library '%s' not loaded",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+/*
+    ap_log_error(APLOG_MARK, APLOG_ERR, rv, s, "Driver loaded");
+*/
+
+    /* Create an encryption context */
+
+    rv = apr_crypto_make(&context, driver, NULL, p);
+    if (rv != APR_SUCCESS) {
+        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
+            "UrsAuth: Failed to create encryption context for crypto library '%s'",
+            APU_CRYPTO_RECOMMENDED_DRIVER);
+        return rv;
+    }
+
+
+    /* Save the encryption context */
+
+    apr_pool_userdata_set(
+        (const void *) context, URS_CRYPTO_KEY,
+        apr_pool_cleanup_null, s->process->pool);
+    ap_log_error(APLOG_MARK, APLOG_INFO, rv, s, "UrsAuth: Crypto context created");
+
+
+/*
+    encrypt_block("This is my message to encrypt", 29, &packet, &packetLen, NULL, s);
+    decrypt_block(packet, packetLen, out, outlen, NULL, s);
+*/
+#endif
+
+    return rv;
+}
+
+
+/**
  * Module configuration records.
  */
 static const command_rec auth_urs_cmds[] =
@@ -1010,6 +1162,18 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the authorization group name" ),
+
+    AP_INIT_TAKE1( "UrsCookieDomain",
+                    set_cookie_domain,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the cookie domain value" ),
+
+    AP_INIT_TAKE1( "UrsSessionPassphrase",
+                    set_session_passphrase,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Set the session encryption passphrase" ),
 
     AP_INIT_TAKE1( "UrsClientId",
                     set_client_id,

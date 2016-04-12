@@ -245,21 +245,18 @@ static int json_read_string( const char* start, const char** end )
 static int json_read_number( const char* start, const char** end )
 {
     char*   end_of_number;
-    long    l;
-    double  d;
-
 
     /*
      * First, try converting it as an integer. If this is successful,
      * we expect the following character to be whitespace, comma, or
      * end-brace (according to the JSON grammar).
      */
-    l = strtol(start, &end_of_number, 0 );
+    strtol(start, &end_of_number, 0 );
     if( strchr(" \t\r\n\f\v,}", *end_of_number) == NULL )
     {
         /* Try treating it as a decimal instead */
 
-        d = strtod(start, &end_of_number);
+        strtod(start, &end_of_number);
     }
 
     if( strchr(" \t\r\n\f\v,}", *end_of_number) == NULL ) return !OK;

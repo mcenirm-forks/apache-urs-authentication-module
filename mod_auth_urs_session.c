@@ -74,6 +74,12 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
     /*
      * Build the session file name
      */
+    if (conf->session_store_path == NULL) {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: No configured session storage path");
+
+        return APR_EGENERAL;
+    }
     session_file = apr_pstrcat(r->pool, conf->session_store_path, auth_cookie, NULL);
 
 
@@ -369,6 +375,132 @@ const char* create_urs_cookie_id(request_rec *r)
 }
 
 
+/**
+ * Creates an encrypted session cookie
+ *
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param session_data a table with the session data that needs to be saved.
+ * @return a pointer to the cookie value containing the encrypted and encoded
+ *          session data.
+ */
+const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_data, const char* passphrase)
+{
+    char *content = "";
+    const apr_array_header_t*   elements;
+
+
+    /* Write the session data into a string */
+
+    elements = apr_table_elts(session_data);
+    if( elements->nelts > 0 )
+    {
+        const apr_array_header_t* elements;
+        const apr_table_entry_t*  entry;
+        int   i;
+
+        elements = apr_table_elts(session_data);
+        entry = (const apr_table_entry_t*) elements->elts;
+
+        /*
+         * Iterate through each key/value pair and add to the combined string.
+         * Note that we url encode the values so we can use a separator
+         * without worring about the separator value appearing in the data.
+         * Note that this is an inefficient algorithm.
+         */
+        for( i = 0; i < elements->nelts; ++i )
+        {
+            content = apr_pstrcat(r->pool, content, "&",
+                url_encode(
+                    r->pool, entry[i].key), "|",
+                    url_encode(r->pool, entry[i].val), NULL);
+        }
+
+
+        ++content; /* Discard the first '&' */
+
+#ifdef USE_CRYPTO
+
+        /* Encrypt the session data */
+
+        if (1) {
+            int rv;
+            unsigned char* packet = NULL;
+            apr_size_t len;
+
+            /* Encrypt the data - this produces binary */
+
+            rv = encrypt_block(content, strlen(content), passphrase, &packet, &len, r);
+            if (rv != APR_SUCCESS) return "";
+
+            /* Now base64 encode it */
+
+            content = apr_palloc(r->pool, apr_base64_encode_len(len) + 1);
+            apr_base64_encode(content, (const char *) packet, len);
+        }
+#endif
+    }
+
+    return content;
+}
+
+
+
+/**
+ * Reads an encrypted session cookie into a session data table.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param cookie the cookie value (the encrypted session data)
+ * @param session_data a table into which all the session data
+ *          will be placed.
+ * @return APR_SUCCESS on success.
+ */
+apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_table_t* session_data, const char* passphrase )
+{
+    char *p;
+    char *e, *s;
+
+#ifdef USE_CRYPTO
+
+    /* Decrypt the packet */
+
+    if (1) {
+        int rv;
+        unsigned char *decrypted = NULL;
+        unsigned char *packet = NULL;
+        apr_size_t len, decryptedLen;
+
+        /* Base64 decode the data first */
+
+        packet = apr_palloc(r->pool, apr_base64_decode_len(cookie));
+        len = apr_base64_decode(packet, cookie);
+
+        /* Now decrypt it */
+
+        rv = decrypt_block(packet, len, passphrase, &decrypted, &decryptedLen, r);
+        if (rv != APR_SUCCESS) return rv;
+        cookie = decrypted;
+    }
+#endif
+
+    p = apr_pstrdup(r->pool, cookie);
+
+    do
+    {
+        e = strchr(p, '&');
+        if (e) *e = '\0';
+
+        s = strchr(p, '|');
+        if (s == NULL) return APR_EGENERAL;
+        *s = '\0';
+
+        apr_table_set(session_data, url_decode(r->connection->pool, p), url_decode(r->connection->pool, s+1));
+        p = e + 1;
+    } while(e);
+
+    return APR_SUCCESS;
+}
+
 
 
 /************************************
@@ -390,8 +522,3 @@ static int write_urs_session_pairs(void *fd, const char* key, const char* value 
 
     return 1;
 }
-
-
-
-
-
