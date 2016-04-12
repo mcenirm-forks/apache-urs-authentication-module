@@ -1000,26 +1000,6 @@ static const char *set_access_error_parameter(cmd_parms *cmd, void *config, cons
 
 
 
-static int urs_module_init(apr_pool_t* p, apr_pool_t* p2, apr_pool_t* p3, server_rec* s)
-{
-    int rv;
-#ifdef USE_CRYPTO
-    rv = apr_crypto_init(p);
-    if (rv != APR_SUCCESS)
-    {
-        ap_log_error(APLOG_MARK, APLOG_ERR, rv, s,
-            "UrsAuth: Failed to initialize crypto library");
-        abort();
-    }
-
-    ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
-        "UrsAuth: Crypto library initialized" );
-
-#endif
-    return rv;
-}
-
-
 /**
  * Initialization function for the URS module.
  * Currently this just sets up the crypto library.
