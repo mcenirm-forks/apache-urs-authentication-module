@@ -74,6 +74,12 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
     /*
      * Build the session file name
      */
+    if (conf->session_store_path == NULL) {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: No configured session storage path");
+
+        return APR_EGENERAL;
+    }
     session_file = apr_pstrcat(r->pool, conf->session_store_path, auth_cookie, NULL);
 
 
@@ -378,7 +384,7 @@ const char* create_urs_cookie_id(request_rec *r)
  * @return a pointer to the cookie value containing the encrypted and encoded
  *          session data.
  */
-const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_data)
+const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_data, const char* passphrase)
 {
     char *content = "";
     const apr_array_header_t*   elements;
@@ -424,7 +430,7 @@ const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_dat
 
             /* Encrypt the data - this produces binary */
 
-            rv = encrypt_block(content, strlen(content), &packet, &len, r);
+            rv = encrypt_block(content, strlen(content), passphrase, &packet, &len, r);
             if (rv != APR_SUCCESS) return "";
 
             /* Now base64 encode it */
@@ -449,7 +455,7 @@ const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_dat
  *          will be placed.
  * @return APR_SUCCESS on success.
  */
-apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_table_t* session_data )
+apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_table_t* session_data, const char* passphrase )
 {
     char *p;
     char *e, *s;
@@ -471,7 +477,7 @@ apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_t
 
         /* Now decrypt it */
 
-        rv = decrypt_block(packet, len, &decrypted, &decryptedLen, r);
+        rv = decrypt_block(packet, len, passphrase, &decrypted, &decryptedLen, r);
         if (rv != APR_SUCCESS) return rv;
         cookie = decrypted;
     }

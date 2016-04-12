@@ -37,7 +37,7 @@
 #include    "http_protocol.h"
 
 
-const char* passphrase = "This should be a reasonable large, and ideally quite random string to act as a passphrase";
+//const char* passphrase = "This should be a reasonable large, and ideally quite random string to act as a passphrase";
 
 
 
@@ -46,11 +46,11 @@ const char* passphrase = "This should be a reasonable large, and ideally quite r
  */
  apr_status_t encrypt_block(
         const unsigned char* message, apr_size_t len,
+        const char* passphrase,
         unsigned char** out, apr_size_t* outlen,
         request_rec* r )
 {
     int rv = APR_SUCCESS;
-    auth_urs_dir_config* dconf = NULL;
 
     apr_crypto_t *context = NULL;
     apr_crypto_key_t *key = NULL;
@@ -65,14 +65,8 @@ const char* passphrase = "This should be a reasonable large, and ideally quite r
     apr_size_t encryptlen, tlen;
 
 
-    dconf = ap_get_module_config(r->per_dir_config, &auth_urs_module );
-
     /* Get the encryption context */
 
-/*
-    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
-           "UrsAuth: Encrypting message: %s", message);
-*/
     rv = apr_pool_userdata_get((void*) &context, URS_CRYPTO_KEY, r->server->process->pool);
     if (rv != APR_SUCCESS) {
         ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
@@ -87,11 +81,7 @@ const char* passphrase = "This should be a reasonable large, and ideally quite r
     apr_uuid_get(&salt);
 
     /* Generate a key from the passphrase and salt value */
-/*
-    TBD request is not original, but redirected. Will need to pass passphrase through
-    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r, "UrsAuth: passphrase = %s", dconf->session_passphrase);
-    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r, "UrsAuth: domain = %s", dconf->cookie_domain);
-*/
+
     rv = apr_crypto_passphrase(&key, &ivSize, passphrase,
         strlen(passphrase),
         (unsigned char *) (&salt), sizeof(apr_uuid_t),
@@ -163,11 +153,11 @@ const char* passphrase = "This should be a reasonable large, and ideally quite r
  */
  apr_status_t decrypt_block(
         const unsigned char* in, apr_size_t inlen,
+        const char* passphrase,
         unsigned char** out, apr_size_t* outlen,
         request_rec* r )
 {
     int rv = APR_SUCCESS;
-    auth_urs_dir_config* dconf = NULL;
 
     apr_crypto_t *context = NULL;
     apr_crypto_key_t *key = NULL;
@@ -179,8 +169,6 @@ const char* passphrase = "This should be a reasonable large, and ideally quite r
     unsigned char *decrypted = NULL;
     apr_size_t decryptedlen, tlen;
 
-
-    dconf = ap_get_module_config(r->per_dir_config, &auth_urs_module );
 
     /* Get the encryption context */
 

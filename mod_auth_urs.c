@@ -114,12 +114,10 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * someone else to do so.
      */
     p = strchr(r->hostname, ':');
-    if( p == NULL )
-    {
+    if( p == NULL ) {
         p = apr_pstrcat(r->pool, r->hostname, ":", r->uri, NULL);
     }
-    else
-    {
+    else {
         /* Strip out the port from the hostname */
 
         p = apr_pstrcat(r->pool,
@@ -130,8 +128,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     /* The authorization group name is used as the cookie name */
 
     cookie_name = apr_table_get(sconf->redirection_map, p);
-    if( cookie_name == NULL )
-    {
+    if( cookie_name == NULL ) {
         /* This is not a redirection point */
 
         return DECLINED;
@@ -146,8 +143,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * decode this first.
      */
     state = get_query_param(r, "state");
-    if( state == NULL )
-    {
+    if( state == NULL ) {
         /* Assume a bad link or hack */
 
         return HTTP_FORBIDDEN;
@@ -167,8 +163,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     url_str = apr_palloc(r->pool, strlen(state) + 1);
     apr_base64_decode(url_str, state);
 
-    if( apr_uri_parse(r->pool, url_str, &url) != APR_SUCCESS )
-    {
+    if( apr_uri_parse(r->pool, url_str, &url) != APR_SUCCESS ) {
         return HTTP_BAD_REQUEST;
     }
 
@@ -209,8 +204,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * either a 'code' or a 'error' query parameter.
      */
     code = get_query_param(r, "code");
-    if( code == NULL )
-    {
+    if( code == NULL ) {
         const char* error;
 
         /*
@@ -231,11 +225,9 @@ int auth_urs_post_read_request_redirect(request_rec *r)
              * query parameter, we must append it with '&' rather
              * than '?'
              */
-            if( dconf->access_error_parameter != NULL )
-            {
+            if( dconf->access_error_parameter != NULL ) {
                 const char* qp = "?";
-                if( strchr(dconf->access_error_url, '?') != NULL )
-                {
+                if( strchr(dconf->access_error_url, '?') != NULL ){
                     qp = "&";
                 }
 
@@ -313,18 +305,16 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     elements = apr_table_elts(dconf->user_profile_env);
 
-    if( elements->nelts > 0 )
-    {
+    if( elements->nelts > 0 ) {
         int i;
         const apr_table_entry_t*  entry;
 
         entry = (const apr_table_entry_t*) elements->elts;
 
-        for( i = 0; i < elements->nelts; ++i )
-        {
+        for( i = 0; i < elements->nelts; ++i ) {
             const char* name = entry[i].key;
-            if( json_get_member_type(user_profile, name) == json_string )
-            {
+
+            if( json_get_member_type(user_profile, name) == json_string ) {
                 const char* value = json_get_member_string(user_profile, name);
                 apr_table_set(session_data, name, value);
             }
@@ -340,14 +330,12 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * The second is to save the session data in a cookie directly. This
      * requires encrypting the session data.
      */
-    if (dconf->session_passphrase == NULL)
-    {
+    if (dconf->session_passphrase == NULL) {
         /*
          * Generate a unique cookie ID.
          */
         cookie_value = create_urs_cookie_id(r);
-        if( cookie_value == NULL )
-        {
+        if( cookie_value == NULL ) {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: Failed to create new cookie" );
             return HTTP_INTERNAL_SERVER_ERROR;
@@ -393,7 +381,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
          */
          ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: Creating encrypted cookie");
-        cookie_value = create_urs_encrypted_cookie(r, session_data);
+        cookie_value = create_urs_encrypted_cookie(r, session_data, dconf->session_passphrase);
 
         /*
          * Set the cookie that we use to track the session for this user. We
@@ -462,8 +450,7 @@ int auth_urs_post_read_request_logout(request_rec *r)
      * We just go ahead and destroy the session.
      */
     cookie_value = get_cookie(r, cookie_name );
-    if( cookie_value != NULL )
-    {
+    if( cookie_value != NULL ) {
         apr_table_unset(r->connection->notes, cookie_value);
         destroy_urs_session(r, cookie_value);
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
@@ -484,7 +471,7 @@ int auth_urs_post_read_request_logout(request_rec *r)
  * Checks to see whether URS OAuth2 type authentication should
  * be performed on the request. This is a hook callback method
  * invoked by apache as part of the request processing, and
- * performs the intial redirection as well as token exchange.
+ * performs the intial redirection.
  *
  * @param r a pointer to the request structure for the
  *          currently active request.
@@ -506,8 +493,7 @@ int auth_urs_check_user_id(request_rec *r)
      * authentication for this request.
      */
     auth_type = ap_auth_type(r);
-    if( auth_type == NULL || strcasecmp(auth_type, "UrsOAuth2") != 0 )
-    {
+    if( auth_type == NULL || strcasecmp(auth_type, "UrsOAuth2") != 0 ) {
         return DECLINED;
     }
 
@@ -520,7 +506,6 @@ int auth_urs_check_user_id(request_rec *r)
         "UrsAuth: Required to authenticate access to %s", r->uri );
 
     dconf = ap_get_module_config(r->per_dir_config, &auth_urs_module );
-
     if( dconf->client_id == NULL
         || apr_table_elts(dconf->redirect_urls)->nelts == 0
         || dconf->authorization_group == NULL)
@@ -531,7 +516,7 @@ int auth_urs_check_user_id(request_rec *r)
     }
 
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
-    if( sconf == NULL || sconf->session_store_path == NULL
+    if( sconf == NULL
         || sconf->urs_auth_path == NULL || sconf->urs_token_path == NULL
         || sconf->urs_auth_server.is_initialized != 1 )
     {
@@ -548,7 +533,7 @@ int auth_urs_check_user_id(request_rec *r)
      * state of this user. Look for our auth cookie.
      */
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-        "UrsAuth: Checking for cookie/session" );
+        "UrsAuth: Checking for session cookie" );
     cookie = get_cookie(r, dconf->authorization_group);
 
 
@@ -557,8 +542,8 @@ int auth_urs_check_user_id(request_rec *r)
      * we still have to check some stuff before we let them access
      * the resource.
      */
-    if( cookie != NULL )
-    {
+    if( cookie != NULL ) {
+
         ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
             "UrsAuth: Cookie found - verifying" );
 
@@ -574,15 +559,14 @@ int auth_urs_check_user_id(request_rec *r)
          * only do this if we use 'apr_table_setn' (not 'apr_table_set').
          */
          ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
-             "UrsAuth: Retrieving session (trying connection cache)" );
+             "UrsAuth: Retrieving session for cookie (trying connection cache)" );
 
          session_data = (apr_table_t*) apr_table_get(r->connection->notes, cookie);
-         if( session_data == NULL )
-         {
+         if( session_data == NULL ) {
+
             session_data = apr_table_make(r->connection->pool, 10);
 
-            if (dconf->session_passphrase == NULL)
-            {
+            if (dconf->session_passphrase == NULL) {
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Session not found in connection cache - restoring from file" );
 
@@ -592,13 +576,11 @@ int auth_urs_check_user_id(request_rec *r)
                  * data is allocated in the connection pool so we can
                  * persist it at the connection level.
                  */
-                if( read_urs_session(r, cookie, session_data) != APR_SUCCESS )
-                {
+                if( read_urs_session(r, cookie, session_data) != APR_SUCCESS ) {
                     session_data = NULL;
                 }
             }
-            else
-            {
+            else {
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Session not found in connection cache - restoring from cookie" );
                 /*
@@ -606,12 +588,18 @@ int auth_urs_check_user_id(request_rec *r)
                  * because we cache the session table on the connection, it must
                  * use the connection pool for memory allocations.
                  */
-                if( read_urs_encrypted_cookie(r, cookie, session_data) != APR_SUCCESS )
-                {
+                if( read_urs_encrypted_cookie(r, cookie, session_data, dconf->session_passphrase) != APR_SUCCESS ) {
                     session_data = NULL;
                 }
+            }
+
+            if (session_data != NULL ) {
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Loaded session data" );
+            }
+            else {
+                ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                    "UrsAuth: Session data could not be loaded" );
             }
         }
 
@@ -621,8 +609,7 @@ int auth_urs_check_user_id(request_rec *r)
          * fails, then flag the cookie for cleanup and make sure any session
          * stored on the connection is removed.
          */
-        if( session_data == NULL || !validate_session(r, cookie, session_data) )
-        {
+        if( session_data == NULL || !validate_session(r, cookie, session_data) ) {
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Expiring session %s", cookie );
 
@@ -632,8 +619,7 @@ int auth_urs_check_user_id(request_rec *r)
             session_data = NULL;
             expire_cookie = 1;
         }
-        else
-        {
+        else {
             /*
              * Make sure the session data is cached on the connection. Note we
              * must use the connection pool to store the key, otherwise it would
@@ -651,8 +637,7 @@ int auth_urs_check_user_id(request_rec *r)
      * request through, so we redirect or reject it, depending upon
      * the specifics of the request.
      */
-    if( cookie == NULL )
-    {
+    if( cookie == NULL ) {
         char*  url;
         char*  buffer;
         int    buflen;
@@ -668,8 +653,7 @@ int auth_urs_check_user_id(request_rec *r)
          * special resource - such as a home page - that can detect
          * whether or not a user is logged in.
          */
-        if( dconf->anonymous_user != NULL )
-        {
+        if( dconf->anonymous_user != NULL ) {
             r->user = dconf->anonymous_user;
             ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
                 "UrsAuth: Access granted to %s for anonymous user %s", r->uri, r->user);
@@ -687,8 +671,7 @@ int auth_urs_check_user_id(request_rec *r)
          * If a session was previously expired, we tell the browser to
          * also expire the cookie.
          */
-        if( r->main != NULL || r->header_only)
-        {
+        if( r->main != NULL || r->header_only) {
             /*
              * If we previously expired a session, tell the browser to
              * expire the cookie. This is not really neccessary, since
@@ -700,8 +683,7 @@ int auth_urs_check_user_id(request_rec *r)
              * For non sub/HEAD requests, this is not an issue, since
              * it will go on to establish a new session.
              */
-            if( expire_cookie )
-            {
+            if( expire_cookie ) {
                 const char* domain = "/";
                 if (dconf->cookie_domain != NULL) domain = dconf->cookie_domain;
 
@@ -731,8 +713,7 @@ int auth_urs_check_user_id(request_rec *r)
          * and the POST requests require special handling to store the
          * request content in a client side cookie.
          */
-        if( r->method_number == M_POST )
-        {
+        if( r->method_number == M_POST ) {
             /*
              * This is a POST request that requires special handling since it may
              * contain a body that needs to be preserved.
@@ -794,8 +775,7 @@ int auth_urs_check_user_id(request_rec *r)
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Set post request cookie = %s", cookie );
         }
-        else if( r->method_number != M_GET )
-        {
+        else if( r->method_number != M_GET ) {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: Not a GET request - forbidden" );
             return HTTP_FORBIDDEN;
@@ -811,14 +791,12 @@ int auth_urs_check_user_id(request_rec *r)
          * First reconstruct the original URL. It is actually not very easy to
          * reconstruct the original request in it's entirety!
          */
-        if( ap_is_default_port(ap_get_server_port(r), r) )
-        {
+        if( ap_is_default_port(ap_get_server_port(r), r) ) {
             url = apr_psprintf(r->pool, "%s://%s%s",
                 ap_http_scheme(r), ap_get_server_name(r),
                 r->unparsed_uri);
         }
-        else
-        {
+        else {
             url = apr_psprintf(r->pool, "%s://%s:%d%s",
                 ap_http_scheme(r), ap_get_server_name(r),
                 ap_get_server_port(r), r->unparsed_uri);
@@ -848,13 +826,12 @@ int auth_urs_check_user_id(request_rec *r)
         /* First, look up the redirect URL for the request hostname */
 
         host = r->hostname;
-        if( strchr(host, ':') != NULL )
-        {
+        if( strchr(host, ':') != NULL ) {
             host = apr_pstrndup(r->pool, r->hostname, strchr(host, ':') - r->hostname);
         }
+
         redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
-        if( redirect_url == NULL )
-        {
+        if( redirect_url == NULL ) {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: No redirect URL configured for host %s and path %s",
                 r->hostname, r->uri);
@@ -893,8 +870,7 @@ int auth_urs_check_user_id(request_rec *r)
      */
     cookie = apr_pstrcat(r->pool, dconf->authorization_group, "_post", NULL);
     cookie = get_cookie(r, cookie);
-    if( cookie != NULL && r->method_number == M_GET )
-    {
+    if( cookie != NULL && r->method_number == M_GET ) {
         auth_urs_post_input_filter_ctx* ctx;
 
         /*
@@ -908,8 +884,7 @@ int auth_urs_check_user_id(request_rec *r)
         char* body = "";
         char* type = "application/x-www-form-urlencoded";
 
-        if( cookie[0] != '\0' )
-        {
+        if( cookie[0] != '\0' ) {
             body_size = apr_base64_decode_len(cookie);
             body = apr_pcalloc(r->pool, body_size + 1);
             body_size = apr_base64_decode_binary(body, cookie);
@@ -974,28 +949,24 @@ int auth_urs_check_user_id(request_rec *r)
 
     elements = apr_table_elts(dconf->user_profile_env);
 
-    if( elements->nelts > 0 )
-    {
+    if( elements->nelts > 0 ) {
         int i;
         const apr_table_entry_t*  entry;
 
         entry = (const apr_table_entry_t*) elements->elts;
 
-        for( i = 0; i < elements->nelts; ++i )
-        {
+        for( i = 0; i < elements->nelts; ++i ) {
             const char* value;
             const char* s_name =  entry[i].key;
             const char* e_name = entry[i].val;
 
             value = apr_table_get(session_data, s_name);
 
-            if( value != NULL )
-            {
+            if( value != NULL ) {
                 apr_table_set(r->subprocess_env, e_name, value);
             }
         }
     }
-
 
     return OK;
 }

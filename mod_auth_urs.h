@@ -407,12 +407,14 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie);
  * @param r a pointer to the request structure for the
  *          currently active request.
  * @param session_data the current session data that should be stored.
+ * @param passphrase the encryption passphrase
  * @return a pointer to the cookie value containing the encrypted and encoded
  *          session data.
  */
 const char* create_urs_encrypted_cookie(
         request_rec *r,
-        apr_table_t* session_data);
+        apr_table_t* session_data,
+        const char* passphrase);
 
 
 
@@ -424,12 +426,14 @@ const char* create_urs_encrypted_cookie(
  * @param cookie the cookie value (the encrypted session data)
  * @param session_data a table into which all the session data
  *          will be placed.
+ * @param passphrase the encryption passphrase
  * @return APR_SUCCESS on success.
  */
 apr_status_t read_urs_encrypted_cookie(
         request_rec *r,
         const char* cookie,
-        apr_table_t* session_data );
+        apr_table_t* session_data,
+        const char* passphrase );
 
 
 /****************************************
@@ -611,11 +615,13 @@ int ssl_write(request_rec* r, ssl_connection *c, char* buffer, int bufsize );
 
 apr_status_t encrypt_block(
         const unsigned char* message, apr_size_t len,
+        const char* passphrase,
         unsigned char** out, apr_size_t* outlen,
         request_rec* r);
 
 apr_status_t decrypt_block(
         const unsigned char* in, apr_size_t inlen,
+        const char* passphrase,
         unsigned char** message, apr_size_t* len,
         request_rec* r);
 #endif
