@@ -483,7 +483,7 @@ int auth_urs_check_user_id(request_rec *r)
     auth_urs_dir_config*        dconf = NULL;
     const char*                 auth_type = NULL;
     const char*                 cookie = NULL;
-    apr_table_t*                session_data;
+    apr_table_t*                session_data = NULL;
     int                         expire_cookie = 0;
     const apr_array_header_t*   elements;
 
@@ -562,6 +562,7 @@ int auth_urs_check_user_id(request_rec *r)
              "UrsAuth: Retrieving session for cookie (trying connection cache)" );
 
          session_data = (apr_table_t*) apr_table_get(r->connection->notes, cookie);
+
          if( session_data == NULL ) {
 
             session_data = apr_table_make(r->connection->pool, 10);
@@ -614,7 +615,9 @@ int auth_urs_check_user_id(request_rec *r)
                 "UrsAuth: Expiring session %s", cookie );
 
             apr_table_unset(r->connection->notes, cookie);
-            destroy_urs_session(r, cookie);
+            if (dconf->session_passphrase == NULL) {
+                destroy_urs_session(r, cookie);
+            }
             cookie = NULL;
             session_data = NULL;
             expire_cookie = 1;
