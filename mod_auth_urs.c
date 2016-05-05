@@ -664,6 +664,14 @@ int auth_urs_check_user_id(request_rec *r)
             return OK;
         }
 
+        if( r->header_only && dconf->head_user != NULL ) {
+            r->user = dconf->head_user;
+            ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r,
+                "UrsAuth: Access granted to %s HEAD request", r->uri);
+
+            return OK;
+        }
+
 
         /*
          * If this is a subrequest, we cannot redirect the user to

@@ -128,6 +128,12 @@ typedef struct auth_urs_dir_config_t
     char*       anonymous_user;
 
     /**
+     * The name to user for HEAD access. If this is set,
+     * HEAD requests are enabled for protected files.
+     */
+    char*       head_user;
+
+    /**
      * The application redirection URLs. These can be configured on a
      * per-hostname basis (for server aliases). The key is the server name,
      * and the value is the parsed redirct-url.
@@ -625,4 +631,3 @@ apr_status_t decrypt_block(
         unsigned char** message, apr_size_t* len,
         request_rec* r);
 #endif
-

@@ -63,6 +63,11 @@ static void *create_auth_urs_svr_config(apr_pool_t *p, server_rec *s)
      */
     conf->redirection_map = apr_table_make(p, 10);
 
+    /* Set up default values for URS */
+
+    conf->urs_auth_path = "/oauth/authorize/";
+    conf->urs_token_path = "/oauth/token";
+
     return conf;
 }
 
@@ -334,6 +339,10 @@ static void *create_auth_urs_dir_config(apr_pool_t *p, char* path)
     conf->user_profile_env = apr_table_make(p, 10);
     conf->redirect_urls = apr_table_make(p, 10);
 
+    /* Set up HEAD access by default */
+
+    conf->head_user = "anonymous";
+
     return conf;
 }
 
@@ -385,6 +394,9 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
 
     s = (add->anonymous_user != NULL) ? add->anonymous_user : base->anonymous_user;
     if( s != NULL ) conf->anonymous_user = apr_pstrdup(p, s);
+
+    s = (add->head_user != NULL) ? add->head_user : base->head_user;
+    if( s != NULL ) conf->head_user = apr_pstrdup(p, s);
 
 
     /*
@@ -649,6 +661,47 @@ static const char *set_authorization_group(cmd_parms *cmd, void *config, const c
 
     ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
         "UrsAuth: Authorization group set to %s", arg );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to enable or disable HEAD request access
+ * to protected files. This is invoked by the UrsAllowHead configuration
+ * directive.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param flag boolean value to enable/disable
+ * @param name name of user when enabled
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_head_user(cmd_parms *cmd, void *config, const char *flag, const char* name)
+{
+    auth_urs_dir_config* conf = config;
+
+    /* Check to see if HEAD access is enabled or disabled */
+
+    if( strcasecmp(flag, "false") == 0 || strcasecmp(flag, "no") == 0
+        || strcasecmp(flag, "0") == 0 )
+    {
+        conf->head_user = NULL;
+        return NULL;
+    }
+
+
+    /* HEAD access is enabled */
+
+    if (name == NULL) {
+        return apr_psprintf(cmd->pool,
+            "Invalid configuration for UrsAllowHead - enabled, but no user name given");
+    }
+
+
+    conf->head_user = apr_pstrdup(cmd->pool, name);
+    ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+        "UrsAuth: HEAD user = %s", name );
 
     return NULL;
 }
@@ -1172,6 +1225,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Set the user for unauthenticated access" ),
+
+    AP_INIT_TAKE12( "UrsAllowHead",
+                    set_head_user,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Enable/disable head access to protected files" ),
 
     AP_INIT_TAKE12( "UrsRedirectUrl",
                     set_redirect_url,
