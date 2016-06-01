@@ -205,46 +205,59 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     code = get_query_param(r, "code");
     if( code == NULL ) {
-        const char* error;
-
         /*
          * There was no code, so we expect an error. We handle
-         * the 'access_denied' as a special case, redirecting
-         * to a configured URL.
+         * the 'access_denied' as a special case, redirecting (if configured)
+         * to a special URL - this is the case when the user denies access
+         * to the application (in the case of an interactive user-agent), or
+         * has not already granted access (in the case of a script based
+         * user-agent).
          */
-        error = get_query_param(r, "error");
+        const char *error = get_query_param(r, "error");
+
         if( error != NULL && strcmp(error, "access_denied") == 0
                 && dconf->access_error_url != NULL )
         {
             const char* error_url = dconf->access_error_url;
 
-            /*
-             * If we have a UrsAccessErrorParmeter configured, add the
-             * original resource URL requested by the user to the
-             * error url. Note that if the URL already contains a
-             * query parameter, we must append it with '&' rather
-             * than '?'
-             */
-            if( dconf->access_error_parameter != NULL ) {
-                const char* qp = "?";
-                if( strchr(dconf->access_error_url, '?') != NULL ){
-                    qp = "&";
+            if (*error_url == '/') {
+                /* We use internal redirects on local URLs */
+
+                ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+                    "UrsAuth: Access denied to user profile. Internal redirect to %s", error_url );
+                r->status = 403;
+                ap_internal_redirect(error_url, r);
+
+                /*
+                 * The fallthrough to the HTTP_MOVED_TEMPORARILY is ok, since
+                 * the internal redirect has already returned the FORBIDDEN
+                 * status back to the client.
+                 */
+            }
+            else {
+                /*
+                 * Non-local error urls are handled with a redirect.
+                 * If we have a UrsAccessErrorParmeter configured, add the
+                 * original resource URL requested by the user to the
+                 * error url. Note that if the URL already contains a
+                 * query parameter, we must append it with '&' rather
+                 * than '?'
+                 */
+                if( dconf->access_error_parameter != NULL ) {
+                    const char* qp = "?";
+                    if( strchr(dconf->access_error_url, '?') != NULL ){
+                        qp = "&";
+                    }
+
+                    error_url = apr_pstrcat( r->pool, dconf->access_error_url,
+                            qp, dconf->access_error_parameter, "=",
+                            url_encode(r->pool, url_str), NULL );
                 }
 
-                error_url = apr_pstrcat( r->pool, dconf->access_error_url,
-                        qp, dconf->access_error_parameter, "=",
-                        url_encode(r->pool, url_str), NULL );
+                ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
+                    "UrsAuth: Access denied to user profile. Redirecting to %s", error_url );
+                apr_table_setn(r->err_headers_out, "Location", error_url);
             }
-
-            /*
-             * This is the case when the user denies access to the application
-             * (in the case of an interactive user-agent), or has not already
-             * granted access (in the case of a script based user-agent).
-             */
-            ap_log_rerror( APLOG_MARK, APLOG_NOTICE, 0, r,
-                "UrsAuth: Access denied to user profile" );
-
-            apr_table_setn(r->err_headers_out, "Location", error_url);
             return HTTP_MOVED_TEMPORARILY;
         }
 
