@@ -88,7 +88,6 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     const char*     code = NULL;
     const char*     state = NULL;
     const char*     cookie_name = NULL;
-    const char*     cookie_value = NULL;
 
     request_rec*    sub_req;
     const char*     access_token;
@@ -101,7 +100,6 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
     char*           url_str;
     int             status;
-    int             len;
     apr_uri_t       url;
 
     const char*           p;

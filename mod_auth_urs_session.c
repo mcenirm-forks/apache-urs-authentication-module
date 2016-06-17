@@ -242,8 +242,6 @@ const unsigned char* session_read_file(request_rec *r, const char* session_id, i
     auth_urs_svr_config*    conf;
     char*               session_file;
     unsigned char*      session_content;
-    char*               key;
-    char*               value;
     apr_file_t*         fd;
     apr_status_t        results;
     apr_finfo_t         finfo;

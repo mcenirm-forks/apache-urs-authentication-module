@@ -169,7 +169,6 @@ const unsigned char* crypto_decrypt_packet(request_rec *r, const unsigned char *
     const EVP_MD        *digest = NULL;
     unsigned char       key[EVP_MAX_KEY_LENGTH];
     unsigned char       iv[EVP_MAX_IV_LENGTH];
-    apr_uuid_t          salt;
     unsigned char       *plaintext;
     int                 plainlen;
     void                *init;
