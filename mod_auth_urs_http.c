@@ -169,7 +169,7 @@ int http_get(request_rec *r, apr_uri_t* server, const char* path, apr_table_t* h
  * @return a pointer to the query parameter value, or NULL
  *         if it did not exist or was empty.
  */
-char* get_query_param( request_rec* r, const char* parameter )
+char* http_get_query_param( request_rec* r, const char* parameter )
 {
     const char* start;
     const char* end;
@@ -208,7 +208,7 @@ char* get_query_param( request_rec* r, const char* parameter )
  * @return a pointer to the cookie value, or NULL
  *         if it did not exist or was empty.
  */
-char* get_cookie( request_rec* r, const char* cookie_name )
+char* http_get_cookie( request_rec* r, const char* cookie_name )
 {
     const char* all_cookies = apr_table_get(r->headers_in, "Cookie");
     const char* start;
@@ -258,6 +258,66 @@ char* get_cookie( request_rec* r, const char* cookie_name )
 
 
 /**
+ * Removes a cookie on an inbound request.
+ *
+ *
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param cookie_name the name of the cookie delete.
+ */
+void http_delete_cookie( request_rec* r, const char* cookie_name )
+{
+    const char *all_cookies = apr_table_get(r->headers_in, "Cookie");
+    char *start;
+    const char *end;
+
+    /* If there are no cookies, abort */
+
+    if( all_cookies == NULL ) return;
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+        "UrsAuth: Deleting cookie '%s'", cookie_name );
+
+    /*
+     * We have some cookies. Look to see if we can find
+     * the right one. Note that we must avoid situations where
+     * a cookie name is part of another cookie name, so we must
+     * explicitly check the cookie name boundaries.
+     */
+    start = (char*) all_cookies;
+    while( (start = strstr(start, cookie_name)) != NULL )
+    {
+        if( start > all_cookies && start[-1] != ' ')
+        {
+            ++start;
+            continue;
+        }
+
+        if( start[strlen(cookie_name)] == '=' ) break;
+        start += strlen(cookie_name);
+    }
+
+    if( start == NULL ) return;
+
+    /*
+     * We have the named cookie, so search to the end of the cookie
+     * value.
+     */
+    end = start + strlen(cookie_name) + 1;
+    end = strchr(start, ';');
+    if( end == NULL ) {
+        *start = 0;
+    }
+    else {
+        ++end;
+        do {
+            *start++ = *end++;
+        } while (*end);
+    }
+}
+
+
+
+/**
  * Encode a URL string.
  * This function maps reserved characters in a string to their % equivalent.
  *
@@ -266,7 +326,7 @@ char* get_cookie( request_rec* r, const char* cookie_name )
  * @return a pointer to the encoded string. This can be the same
  *         string if no encoding is necessary.
  */
-const char* url_encode(apr_pool_t* pool, const char* uri)
+const char* http_url_encode(apr_pool_t* pool, const char* uri)
 {
     /*
      * Unreserved characters - these do not need to be encoded.
@@ -331,7 +391,7 @@ const char* url_encode(apr_pool_t* pool, const char* uri)
  * @return a pointer to the decoded string.This can be the same
  *         string if no decoding is necessary.
  */
-const char* url_decode(apr_pool_t* pool, const char* uri)
+const char* http_url_decode(apr_pool_t* pool, const char* uri)
 {
     static const char* hex_map = "0123456789ABCDEF";
 
@@ -755,7 +815,7 @@ static int http_read_response(request_rec *r, ssl_connection *c, apr_table_t* he
  * @return the response status
  *
  */
-int get_request_body( request_rec* r, char* buffer, int* size )
+int http_get_request_body( request_rec* r, char* buffer, int* size )
 {
     int bytes_read = 0;
     int end = 0;

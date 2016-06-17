@@ -96,19 +96,6 @@ typedef struct auth_urs_dir_config_t
 
 
     /**
-     * The domain to be used for cookie configuration. This is only used
-     * when encrypted cookie sessions are active.
-     */
-    char*       cookie_domain;
-
-
-    /**
-     * The passphrase to be used for encrypted sessions.
-     */
-    char*       session_passphrase;
-
-
-    /**
      * The client ID assigned when the application was registered
      * for this particular location.
      */
@@ -120,6 +107,26 @@ typedef struct auth_urs_dir_config_t
      * should be restricted.
      */
     char*       authorization_code;
+
+
+    /**
+     * Enables cookie based sessions.
+     */
+    int         use_cookie_sessions;
+
+    /**
+     * The domain to be used for cookie configuration. This is generally only
+     * useful for cookie based sessions to allow a single login across
+     * multiple applications.
+     */
+    char*       cookie_domain;
+
+
+    /**
+     * The passphrase to be used for encrypted sessions.
+     */
+    char*       session_passphrase;
+
 
     /**
      * The name to user for anonymous access. If this is set,
@@ -148,6 +155,7 @@ typedef struct auth_urs_dir_config_t
      */
     long        idle_timeout;
 
+
     /**
      * The timeout on an active session. Set to 0 to
      * disable. This destroys a session after the given
@@ -157,21 +165,25 @@ typedef struct auth_urs_dir_config_t
      */
     long        active_timeout;
 
+
     /**
      * The number of parts of the IP4 address octets to check
      * as part of session verification. 0 disables.
      */
     int         check_ip_octets;
 
+
     /**
      *  Disables the URS Oauth2 splash screen
      */
     int         splash_disable;
 
+
     /**
      *  Enables the 401 response from URS
      */
     int         auth401_enable;
+
 
     /**
      * A table of user profile parameters to save in the
@@ -180,18 +192,20 @@ typedef struct auth_urs_dir_config_t
      */
     apr_table_t* user_profile_env;
 
+
     /**
      * The access error redirection URL
      */
     char*       access_error_url;
+
 
     /**
      * The access error resource parameter name
      */
     char*       access_error_parameter;
 
-
 } auth_urs_dir_config;
+
 
 
 /**
@@ -266,6 +280,7 @@ apr_status_t auth_urs_post_body_filter(
         ap_input_mode_t mode,
         apr_read_type_e block,
         apr_off_t readbytes );
+
 
 
 /****************************************
@@ -351,95 +366,91 @@ json_type json_get_member_type(json* json, const char* name );
 
 
 /**
+ * Constructs a data packet containing all the given session data.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param session pointer to the table containing the session data.
+ * @param len used to return the size of the packet
+ * @return a pointer to the packet (may contain embedded nulls)
+ */
+const unsigned char* session_pack(
+        request_rec *r,
+        apr_table_t* session,
+        int* len);
+
+
+
+/**
+ * Reconstructs a session from a stored session packet.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param buffer the session packet buffer
+ * @param len the lenght of the session packet
+ * @param session pointer to the table into which the session data will be placed
+ * @return APR_SUCCESS, or an error code
+ */
+apr_status_t session_unpack(
+        request_rec *r,
+        const unsigned char* buffer,
+        int len,
+        apr_table_t* session );
+
+
+/**
  * Creates a unique cookie ID that can be used as a session
  * reference.
  *
  * @param r a pointer to the request structure for the
  *          currently active request.
- * @return a pointer to the name of a new, unique, session
+ * @return a pointer to the name of a new, unique, session ID.
  */
-const char* create_urs_cookie_id(request_rec *r);
+const char* session_create_id(request_rec *r);
 
 
 
 /**
- * Writes session data table to a session file.
+ * Writes session data to a session file. Note that the session data
+ * must have been packed using the 'session_pack' method. It may also
+ * be encrypted.
  * @param r a pointer to the request structure for the
  *          currently active request.
- * @param auth_cookie the cookie value. This is used to identify
- *          the session file.
- * @param session_data the current session data that should be stored.
+ * @param session_id the session id (will be used as the filename).
+ * @param data the current session data packet that should be stored.
+ * @param len the length of the session data packet.
  * @return APR_SUCCESS on success.
  */
-apr_status_t write_urs_session(
+apr_status_t session_write_file(
         request_rec *r,
-        const char* auth_cookie,
-        apr_table_t* session_data );
+        const char* session_id,
+        const unsigned char* data,
+        int len );
 
 
 
 /**
- * Reads a session file into a session data table.
+ * Reads session data from a session file.
  * @param r a pointer to the request structure for the
  *          currently active request.
- * @param auth_cookie the cookie value. This is used to identify
- *          the session file.
- * @param session_data a table into which all the session data
- *          will be placed.
- * @return APR_SUCCESS on success.
+ * @param session_id the session id (will be used as the filename).
+ * @param len returns the length of the session data packet.
+ * @return a pointer to the session data file, or NULL if no session
+ *          data file could be found.
  */
-apr_status_t read_urs_session(
+const unsigned char* session_read_file(
         request_rec *r,
-        const char* auth_cookie,
-        apr_table_t* session_data );
+        const char* session_id,
+        int* len);
 
 
 /**
  * Deletes a session file.
  * @param r a pointer to the request structure for the
  *          currently active request.
- * @param auth_cookie the cookie value. This is used to identify
- *          the session file.
+ * @param session_id the session id of the file to destroy
  *
  * @return APR_SUCCESS.
  */
-apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie);
-
-
-
-/**
- * Creates an encrypted session cookie
- *
- * @param r a pointer to the request structure for the
- *          currently active request.
- * @param session_data the current session data that should be stored.
- * @param passphrase the encryption passphrase
- * @return a pointer to the cookie value containing the encrypted and encoded
- *          session data.
- */
-const char* create_urs_encrypted_cookie(
-        request_rec *r,
-        apr_table_t* session_data,
-        const char* passphrase);
-
-
-
-
-/**
- * Reads an encrypted session cookie into a session data table.
- * @param r a pointer to the request structure for the
- *          currently active request.
- * @param cookie the cookie value (the encrypted session data)
- * @param session_data a table into which all the session data
- *          will be placed.
- * @param passphrase the encryption passphrase
- * @return APR_SUCCESS on success.
- */
-apr_status_t read_urs_encrypted_cookie(
-        request_rec *r,
-        const char* cookie,
-        apr_table_t* session_data,
-        const char* passphrase );
+apr_status_t session_destroy_file(request_rec *r, const char* session_id);
 
 
 /****************************************
@@ -455,7 +466,7 @@ apr_status_t read_urs_encrypted_cookie(
  * @return a pointer to the query parameter value, or NULL
  *         if it did not exist or was empty.
  */
-char* get_query_param(
+char* http_get_query_param(
         request_rec* r,
         const char* parameter );
 
@@ -463,14 +474,27 @@ char* get_query_param(
 /**
  * Extracts the value of a named cookie.
  *
- *
  * @param r a pointer to the request structure for the
  *          currently active request.
  * @param cookie_name the name of the cookie extract.
  * @return a pointer to the cookie value, or NULL
  *         if it did not exist or was empty.
  */
-char* get_cookie(
+char* http_get_cookie(
+        request_rec* r,
+        const char* cookie_name );
+
+
+/**
+ * Deletes a named cookie.
+ * This only deletes the cookie in the input headers, so a subsequent
+ * handler will not find it.
+ *
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param cookie_name the name of the cookie extract.
+ */
+void http_delete_cookie(
         request_rec* r,
         const char* cookie_name );
 
@@ -484,7 +508,7 @@ char* get_cookie(
  * @return a pointer to the encoded string. This can be the same
  *         string if no encoding is necessary.
  */
-const char* url_encode(
+const char* http_url_encode(
         apr_pool_t *pool,
         const char* uri );
 
@@ -498,7 +522,7 @@ const char* url_encode(
  * @return a pointer to the decoded string. This can be the same
  *         string if no decoding is necessary.
  */
-const char* url_decode(
+const char* http_url_decode(
         apr_pool_t *pool,
         const char* uri );
 
@@ -551,7 +575,7 @@ int http_get(
  * @return the response status
  *
  */
-int get_request_body(
+int http_get_request_body(
         request_rec* r,
         char* buffer,
         int* size );
@@ -615,19 +639,36 @@ int ssl_write(request_rec* r, ssl_connection *c, char* buffer, int bufsize );
 /****************************************
  * Crypto declarations
  ***************************************/
-#ifdef USE_CRYPTO
 
-#define URS_CRYPTO_KEY "urs_crypto_context"
 
-apr_status_t encrypt_block(
-        const unsigned char* message, apr_size_t len,
-        const char* passphrase,
-        unsigned char** out, apr_size_t* outlen,
-        request_rec* r);
+/**
+ * Encrypts a data packet.
+ * @param r a pointer to the current request
+ * @param p a pointer to the block of data to encrypt
+ * @param len the length of the data block. Also returns the length of
+ *          the encrypted block on return.
+ * @param passphrase the passphrase to use to encrypt the data block.
+ * @return a pointer to the encrypted data block.
+ */
+const unsigned char* crypto_encrypt_packet(
+        request_rec *r,
+        const unsigned char *p,
+        int *len,
+        const char* passphrase);
 
-apr_status_t decrypt_block(
-        const unsigned char* in, apr_size_t inlen,
-        const char* passphrase,
-        unsigned char** message, apr_size_t* len,
-        request_rec* r);
-#endif
+
+
+/**
+ * Decrypts a data packet.
+ * @param r a pointer to the current request
+ * @param p a pointer to the block of data to decrypt
+ * @param len the length of the data block. Also returns the length of
+ *          the decrypted block on return.
+ * @param passphrase the passphrase to use to decrypt the data block.
+ * @return a pointer to the decrypted data block.
+ */
+const unsigned char* crypto_decrypt_packet(
+        request_rec *r,
+        const unsigned char *p,
+        int *len,
+        const char* passphrase);

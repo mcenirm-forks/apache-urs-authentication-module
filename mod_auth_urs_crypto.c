@@ -22,232 +22,260 @@
 #include    "mod_auth_urs.h"
 
 
-#include    "apr_base64.h"
-#include    "apr_lib.h"
-#include    "apr_strings.h"
 #include    "apr_uuid.h"
 
-#ifdef USE_CRYPTO
-#include    "apr_crypto.h"
-
-#include    "httpd.h"
-#include    "http_config.h"
-#include    "http_core.h"
 #include    "http_log.h"
-#include    "http_protocol.h"
+
+#include    <openssl/evp.h>
 
 
-//const char* passphrase = "This should be a reasonable large, and ideally quite random string to act as a passphrase";
+static const char* urs_cipher_name = "aes-256-cbc";
+static const char* urs_digest_name = "sha1";
 
+
+static const char* urs_init_key = "urs_init_key";
 
 
 /**
- * Encrpytion function.
+ * Encryption function.
+ *
+ * This method is used to encrypt a data chunk using the given passphrase.
  */
- apr_status_t encrypt_block(
-        const unsigned char* message, apr_size_t len,
-        const char* passphrase,
-        unsigned char** out, apr_size_t* outlen,
-        request_rec* r )
+const unsigned char* crypto_encrypt_packet(request_rec *r, const unsigned char *p, int *len, const char* passphrase)
 {
-    int rv = APR_SUCCESS;
-
-    apr_crypto_t *context = NULL;
-    apr_crypto_key_t *key = NULL;
-    apr_size_t ivSize = 0;
-    apr_uuid_t salt;
-
-    apr_crypto_block_t *block = NULL;
-    const unsigned char *iv = NULL;
-    apr_size_t blockSize = 0;
-
-    unsigned char *encrypt = NULL;
-    apr_size_t encryptlen, tlen;
+    EVP_CIPHER_CTX      *ctx;
+    const EVP_CIPHER    *cipher = NULL;
+    const EVP_MD        *digest = NULL;
+    unsigned char       key[EVP_MAX_KEY_LENGTH];
+    unsigned char       iv[EVP_MAX_IV_LENGTH];
+    apr_uuid_t          salt;
+    unsigned char       *ciphertext;
+    int                 cipherlen;
+    void                *init;
 
 
-    /* Get the encryption context */
+    /* One time initialization */
 
-    rv = apr_pool_userdata_get((void*) &context, URS_CRYPTO_KEY, r->server->process->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Unable to retrieve encryption context");
-        return rv;
+    apr_pool_userdata_get(&init, urs_init_key, r->server->process->pool);
+    if(init != NULL) {
+        OpenSSL_add_all_algorithms();
     }
-    ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r, "UrsAuth: Have context");
-    if (context == NULL) ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r, "UrsAuth: Context is null");
+    else {
+        apr_pool_userdata_set((const void *)1, urs_init_key,
+            apr_pool_cleanup_null, r->server->process->pool);
+    }
+
+
+    /* Get the named cipher */
+
+    cipher = EVP_get_cipherbyname(urs_cipher_name);
+    if (!cipher) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Unsupported cypher name '%s'", urs_cipher_name);
+        return 0;
+    }
+
+
+    /* Get the named digest */
+
+    digest = EVP_get_digestbyname(urs_digest_name);
+    if (!digest) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Unsupported digest name '%s'", urs_digest_name);
+        return 0;
+    }
 
     /* Generate a salt value. This gets embedded in the packet */
 
     apr_uuid_get(&salt);
 
-    /* Generate a key from the passphrase and salt value */
 
-    rv = apr_crypto_passphrase(&key, &ivSize, passphrase,
-        strlen(passphrase),
-        (unsigned char *) (&salt), sizeof(apr_uuid_t),
-        APR_KEY_AES_256 , APR_MODE_CBC, 1, 4096, context, r->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Failed generating encryption key");
-        return rv;
+    /* Generate the key and IV */
+
+    if (!EVP_BytesToKey(cipher, digest, (const unsigned char*) &salt,
+        (unsigned char *) passphrase, strlen(passphrase), 1, key, iv))
+    {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to generate cipher key with cipher '%s' and digest '%s'",
+                urs_cipher_name, urs_digest_name);
+        return 0;
     }
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Key created. ivSize = %d", ivSize);
-*/
 
-    /* Initialize the encryption block */
 
-    rv = apr_crypto_block_encrypt_init(&block, &iv, key, &blockSize, r->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Failed to initialize encrpytion block");
-        return rv;
-    }
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Block created");
-*/
-
-    /* Encrypt the data */
-
-    rv = apr_crypto_block_encrypt(
-            &encrypt, &encryptlen, message, len, block);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Message encryption failed");
-        return rv;
-    }
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Message encrypted");
-*/
-
-    rv = apr_crypto_block_encrypt_finish(encrypt + encryptlen, &tlen, block);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Message encryption failed to finish");
-        return rv;
-    }
-    encryptlen += tlen;
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Message encrypted. Length = %d", encryptlen);
-*/
     /*
-     * Generate the complete encrypted packet. This includes the salt,
-     * the initialization vector, and the encrypted data.
+     * Now we have everything we need to encrypt a packet, so generate the
+     * cipher context.
      */
-    *outlen = ivSize + encryptlen + sizeof(apr_uuid_t);
-    *out = apr_palloc(r->pool, ivSize + encryptlen + sizeof(apr_uuid_t));
-    memcpy(*out, &salt, sizeof(apr_uuid_t));
-    memcpy(*out + sizeof(apr_uuid_t), iv, ivSize);
-    memcpy(*out + sizeof(apr_uuid_t) + ivSize, encrypt, encryptlen);
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Packet complete. Length = %d", *outlen);
-*/
-    return rv;
-}
 
+    ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to create cipher context");
+        return 0;
+    }
+
+    if (!EVP_EncryptInit_ex(ctx, cipher, NULL, key, iv)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to initialize cipher context");
+        return 0;
+    }
+
+    /*
+     * Note that AES encryption does not expand the data, although
+     * there may be padding bytes. We use a brute force approach
+     * to make sure the ciphertext buffer is large enough. Note that the
+     * buffer also contains the salt.
+     */
+    ciphertext = apr_pcalloc(r->pool, *len < 256 ? 1024 : *len * 4);
+    memcpy(ciphertext, &salt, sizeof(apr_uuid_t));
+
+    if (!EVP_EncryptUpdate(ctx, ciphertext + sizeof(apr_uuid_t), &cipherlen, p, *len)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to encrypt packet");
+        EVP_CIPHER_CTX_free(ctx);
+        return 0;
+    }
+    cipherlen += sizeof(apr_uuid_t);
+
+
+    if (!EVP_EncryptFinal_ex(ctx, ciphertext + cipherlen, len)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to finalize packet encryption");
+        EVP_CIPHER_CTX_free(ctx);
+        return 0;
+    }
+
+    /* All done - clean up and return */
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    *len += cipherlen;
+
+    return ciphertext;
+}
 
 
 
 /**
- * Encrpytion function.
+ * Decryption function.
+ *
+ * This method is used to decrypt a data chunk previously encrypted using the
+ * given passphrase.
  */
- apr_status_t decrypt_block(
-        const unsigned char* in, apr_size_t inlen,
-        const char* passphrase,
-        unsigned char** out, apr_size_t* outlen,
-        request_rec* r )
+const unsigned char* crypto_decrypt_packet(request_rec *r, const unsigned char *p, int *len, const char* passphrase)
 {
-    int rv = APR_SUCCESS;
-
-    apr_crypto_t *context = NULL;
-    apr_crypto_key_t *key = NULL;
-    apr_size_t ivSize = 0;
-
-    apr_crypto_block_t *block = NULL;
-    apr_size_t blockSize = 0;
-
-    unsigned char *decrypted = NULL;
-    apr_size_t decryptedlen, tlen;
+    EVP_CIPHER_CTX      *ctx;
+    const EVP_CIPHER    *cipher = NULL;
+    const EVP_MD        *digest = NULL;
+    unsigned char       key[EVP_MAX_KEY_LENGTH];
+    unsigned char       iv[EVP_MAX_IV_LENGTH];
+    apr_uuid_t          salt;
+    unsigned char       *plaintext;
+    int                 plainlen;
+    void                *init;
 
 
-    /* Get the encryption context */
+    /* Simple check to prevent basic problems with corrupted packets */
 
-    rv = apr_pool_userdata_get((void*) &context, URS_CRYPTO_KEY, r->server->process->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Unable to retrieve encryption context");
-        return rv;
+    if (*len <= 16) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Cannot decrypt packet - invalid length");
+        return 0;
     }
 
 
-    /* Generate the decryption key from the passphrase */
+    /* One time initialization */
 
-    rv = apr_crypto_passphrase(&key, &ivSize, passphrase,
-            strlen(passphrase),
-            in, sizeof(apr_uuid_t),
-            APR_KEY_AES_256, APR_MODE_CBC, 1, 4096, context, r->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-            "UrsAuth: Failed generating decryption key");
-        return rv;
+    apr_pool_userdata_get(&init, urs_init_key, r->server->process->pool);
+    if(init != NULL) {
+        OpenSSL_add_all_algorithms();
     }
-/*
-    ap_log_rerror(APLOG_MARK, APLOG_INFO, rv, r, "Key created. ivSize = %d", ivSize);
-*/
-
-    /* Skip the salt value */
-
-    in += sizeof(apr_uuid_t);
-    inlen -= sizeof(apr_uuid_t);
-
-    /* Initialize the decryption block */
-
-    rv = apr_crypto_block_decrypt_init(
-            &block, &blockSize, in, key, r->pool);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-                "UrsAuth: Failed to initialize decrpytion block");
-        return rv;
+    else {
+        apr_pool_userdata_set((const void *)1, urs_init_key,
+            apr_pool_cleanup_null, r->server->process->pool);
     }
 
 
-    /* Skip the initializatio vector */
+    /* Get the named cipher */
 
-    in += ivSize;
-    inlen -= ivSize;
-
-    /* Now decrypt the message */
-
-    rv = apr_crypto_block_decrypt(
-            &decrypted, &decryptedlen, in, inlen, block);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-                "UrsAuth: Packet decryption failed");
-        return rv;
+    cipher = EVP_get_cipherbyname(urs_cipher_name);
+    if (!cipher) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Unsupported cypher name '%s'", urs_cipher_name);
+        return 0;
     }
 
-    rv = apr_crypto_block_decrypt_finish(decrypted + decryptedlen, &tlen, block);
-    if (rv != APR_SUCCESS) {
-        ap_log_rerror(APLOG_MARK, APLOG_ERR, rv, r,
-                "UrsAuth: Packet decryption failed to complete");
-        return rv;
+
+    /* Get the named digest */
+
+    digest = EVP_get_digestbyname(urs_digest_name);
+    if (!digest) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Unsupported digest name '%s'", urs_digest_name);
+        return 0;
     }
-    decryptedlen += tlen;
-    decrypted[decryptedlen] = 0;
 
-/*
-    ap_log_rerror( APLOG_MARK, APLOG_INFO, 0, r, "UrsAuth: Decrypted packet: %s", decrypted);
-*/
-    *out = decrypted;
-    *outlen = decryptedlen;
 
-    return rv;
+    /*
+     * Generate the key and IV. Note that the salt comes from the start of
+     * the ciphertext (input).
+     */
+    if (!EVP_BytesToKey(cipher, digest, p,
+        (unsigned char *) passphrase, strlen(passphrase), 1, key, iv))
+    {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to generate cipher key with cipher '%s' and digest '%s'",
+                urs_cipher_name, urs_digest_name);
+        return 0;
+    }
+    p += sizeof(apr_uuid_t);
+    *len -= sizeof(apr_uuid_t);
+
+
+    /*
+     * Now we have everything we need to decrypt a packet, so generate the
+     * cipher context.
+     */
+
+    ctx = EVP_CIPHER_CTX_new();
+    if (!ctx) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to create cipher context");
+        return 0;
+    }
+
+    if (!EVP_DecryptInit_ex(ctx, cipher, NULL, key, iv)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to initialize cipher context");
+        return 0;
+    }
+
+    /*
+     * Note that AES decryption does not expand the data, so we can allocate
+     * an output buffer size the same as the input (the input also has a salt
+     * value padding it out).
+     */
+    plaintext = apr_pcalloc(r->pool, *len);
+
+    if (!EVP_DecryptUpdate(ctx, plaintext, &plainlen, p, *len)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to decrypt packet");
+        EVP_CIPHER_CTX_free(ctx);
+        return 0;
+    }
+
+    if (!EVP_DecryptFinal_ex(ctx, plaintext + plainlen, len)) {
+        ap_log_rerror(APLOG_MARK, APLOG_ERR, 0, r,
+                "UrsAuth: Failed to finalize packet decryption");
+        EVP_CIPHER_CTX_free(ctx);
+        return 0;
+    }
+
+    /* All done - clean up and return */
+
+    EVP_CIPHER_CTX_free(ctx);
+
+    *len += plainlen;
+
+    return plaintext;
 }
-
-
-
-
-#endif
-
-
-

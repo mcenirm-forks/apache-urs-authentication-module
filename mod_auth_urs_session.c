@@ -38,15 +38,96 @@
  * Internal method declarations.
  *
  */
+static int write_session_pair(void *vdata, const char* key, const char* value );
 
-static int write_urs_session_pairs(void *fd, const char* key, const char* value );
-
+/**
+ * Internal structure used when packing session data.
+ */
+typedef struct session_packet_t
+{
+    apr_pool_t*     pool;
+    unsigned char*  buffer;
+    int             size;
+    int             len;
+} session_packet;
 
 
 
 /************************************
  * Exported (external) methods
  ************************************/
+
+
+/**
+ * Constructs a data packet containing all the given session data.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param session pointer to the table containing the sessio data.
+ * @param len used to return the size of the packet
+ * @return a pointer to the packet (may contain embedded nulls)
+ */
+const unsigned char* session_pack(request_rec *r, apr_table_t *session, int *len)
+{
+    /* Set up an initial buffer for constructing the session packet */
+
+    session_packet data = {
+        r->pool,
+        apr_pcalloc(r->pool, 2048),
+        2048,
+        0
+    };
+
+    apr_table_do(write_session_pair, &data, session, NULL);
+
+    *len = data.len;
+    return data.buffer;
+}
+
+
+
+/**
+ * Reconstructs a session from a stored session packet.
+ * @param r a pointer to the request structure for the
+ *          currently active request.
+ * @param buffer the session packet buffer
+ * @param len the lenght of the session packet
+ * @param session pointer to the table into which the session data will be placed
+ * @return APR_SUCCESS, or an error code
+ */
+apr_status_t session_unpack(request_rec *r, const unsigned char* buffer, int len, apr_table_t* session )
+{
+    const char*         key;
+    const char*         value;
+    int                 nbytes;
+
+
+    /*
+     * Process the data into key/value pairs and load into the session
+     * table. This will use the tables assigned pool.
+     */
+    nbytes = 0;
+    while( nbytes < len )
+    {
+        key = (const char*) buffer + nbytes;
+        nbytes += strlen(key) + 1;
+        value = (const char*) buffer + nbytes;
+        nbytes += strlen(value) + 1;
+
+        apr_table_set(session, key, value);
+    }
+
+    if( nbytes != len )
+    {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "Failed to load session data - size mismatch");
+
+        return APR_EGENERAL;
+    }
+
+
+    return APR_SUCCESS;
+}
+
 
 
 /**
@@ -58,13 +139,14 @@ static int write_urs_session_pairs(void *fd, const char* key, const char* value 
  * @param session_data the current session data that should be stored.
  * @return APR_SUCCESS on success.
  */
-apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_table_t* session_data )
+apr_status_t session_write_file(request_rec *r, const char* session_id, const unsigned char* data, int len )
 {
     auth_urs_svr_config*    conf;
+
     char*               session_file;
     apr_file_t*         fd;
-    apr_status_t        results;
-
+    apr_status_t        result;
+    apr_size_t          size = len;
     int                 open_flags = APR_READ | APR_WRITE | APR_CREATE;
     int                 open_perms = APR_FPROT_UREAD | APR_FPROT_UWRITE;
 
@@ -80,19 +162,19 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
 
         return APR_EGENERAL;
     }
-    session_file = apr_pstrcat(r->pool, conf->session_store_path, auth_cookie, NULL);
+    session_file = apr_pstrcat(r->pool, conf->session_store_path, session_id, NULL);
 
 
     /*
      * Open the session file for writing
      */
-    results = apr_file_open( &fd, session_file, open_flags, open_perms, r->pool );
-    if( results != APR_SUCCESS )
+    result = apr_file_open( &fd, session_file, open_flags, open_perms, r->pool );
+    if( result != APR_SUCCESS )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: Unable to open session file for output: %s", session_file );
 
-        return results;
+        return result;
     }
 
 
@@ -126,15 +208,11 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
 
 
     /*
-     * Write the session file. All data is output
-     * simply as name/value null terminated string pairs. This makes it
-     * far easier to read it back in!
+     * Write the data packet to the session file.
      */
-    results = TRUE;
-    if( session_data != NULL )
-    {
-        results = apr_table_do(write_urs_session_pairs, fd, session_data, NULL);
-    }
+    result = apr_file_write(fd, data, &size);
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+            "Wrote %d bytes to session file %s", (int) size, session_file );
 
 
     /*
@@ -143,12 +221,8 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
     apr_file_unlock(fd);
 
     apr_file_close(fd);
-    if( !results )
-    {
-        return APR_EGENERAL;
-    }
 
-    return APR_SUCCESS;
+    return result;
 }
 
 
@@ -163,11 +237,11 @@ apr_status_t write_urs_session(request_rec *r, const char* auth_cookie, apr_tabl
  *          will be placed.
  * @return APR_SUCCESS on success.
  */
-apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table_t* session_data )
+const unsigned char* session_read_file(request_rec *r, const char* session_id, int* len )
 {
     auth_urs_svr_config*    conf;
     char*               session_file;
-    char*               session_content;
+    unsigned char*      session_content;
     char*               key;
     char*               value;
     apr_file_t*         fd;
@@ -179,12 +253,9 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
     conf = ap_get_module_config(r->server->module_config, &auth_urs_module );
 
 
-    /*
-     * Build the session file name
-     */
-    session_file = apr_pcalloc(r->pool, strlen(conf->session_store_path) + strlen(auth_cookie) + 2);
-    strcpy(session_file, conf->session_store_path);
-    strcat(session_file, auth_cookie);
+    /* Build the session file name */
+
+    session_file = apr_pstrcat(r->pool, conf->session_store_path, session_id, NULL);
 
 
     /*
@@ -195,13 +266,13 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "Unable to test session file for input: %s", session_file );
-        return APR_EGENERAL;
+        return NULL;
     }
-    if( finfo.size > 1024 )
+    if( finfo.size > 2048 )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "Possible session file corruption: %s", session_file );
-        return APR_EGENERAL;
+        return NULL;
     }
 
 
@@ -214,16 +285,14 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "Unable to open session file for input: %s", session_file );
 
-        return results;
+        return NULL;
     }
 
 
     /*
-     * Allocate memory from the connection pool (it will persist
-     * for the duration of the connection) and load the session
-     * file.
+     * Allocate memory for loading the file contents
      */
-    session_content = apr_pcalloc(r->connection->pool, finfo.size );
+    session_content = apr_pcalloc(r->pool, finfo.size );
     nbytes = finfo.size;
 
     if( apr_file_read(fd, session_content, &nbytes) != APR_SUCCESS
@@ -233,37 +302,12 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
             "Failed to read session content: %s", session_file );
 
         apr_file_close(fd);
-        return APR_EGENERAL;
+        return NULL;
     }
     apr_file_close(fd);
 
-
-    /*
-     * Process the data into key/value pairs and load into the session
-     * table. For efficiency, we use the original memory used to load
-     * the file.
-     */
-    nbytes = 0;
-    while( nbytes < finfo.size )
-    {
-        key = session_content + nbytes;
-        nbytes += strlen(key) + 1;
-        value = session_content + nbytes;
-        nbytes += strlen(value) + 1;
-
-        apr_table_setn(session_data, key, value);
-    }
-
-    if( nbytes != finfo.size )
-    {
-        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
-            "Failed to load session data");
-
-        return APR_EGENERAL;
-    }
-
-
-    return APR_SUCCESS;
+    *len = finfo.size;
+    return session_content;
 }
 
 
@@ -277,7 +321,7 @@ apr_status_t read_urs_session(request_rec *r, const char* auth_cookie, apr_table
  *
  * @return APR_SUCCESS.
  */
-apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie)
+apr_status_t session_destroy_file(request_rec *r, const char* session_id)
 {
     auth_urs_svr_config*  conf;
     char*                 session_file;
@@ -288,14 +332,14 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie)
 
     /* Build the session file name */
 
-    session_file = apr_pcalloc(r->pool, strlen(conf->session_store_path) + strlen(auth_cookie) + 2);
-    strcpy(session_file, conf->session_store_path);
-    strcat(session_file, auth_cookie);
+    session_file = apr_pstrcat(r->pool, conf->session_store_path, session_id, NULL);
 
 
-    /* Delete session file */
+    /* Delete session file if it exists */
 
-    apr_file_remove(session_file, r->pool );
+    if (apr_file_remove(session_file, r->pool) == APR_SUCCESS)
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "Removed session file: %s", session_file );
 
     return APR_SUCCESS;
 }
@@ -310,7 +354,7 @@ apr_status_t destroy_urs_session(request_rec *r, const char* auth_cookie)
  *          currently active request.
  * @return a pointer to the name of a new, unique, session
  */
-const char* create_urs_cookie_id(request_rec *r)
+const char* session_create_id(request_rec *r)
 {
     auth_urs_svr_config*    conf;
 
@@ -333,6 +377,8 @@ const char* create_urs_cookie_id(request_rec *r)
      */
     if( apr_table_get(r->subprocess_env, "UNIQUE_ID") != NULL )
     {
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                "UrsAuth: Using UNIQUE_ID %s", apr_table_get(r->subprocess_env, "UNIQUE_ID"));
         return apr_table_get(r->subprocess_env, "UNIQUE_ID");
     }
 
@@ -375,150 +421,40 @@ const char* create_urs_cookie_id(request_rec *r)
 }
 
 
-/**
- * Creates an encrypted session cookie
- *
- * @param r a pointer to the request structure for the
- *          currently active request.
- * @param session_data a table with the session data that needs to be saved.
- * @return a pointer to the cookie value containing the encrypted and encoded
- *          session data.
- */
-const char* create_urs_encrypted_cookie(request_rec *r, apr_table_t* session_data, const char* passphrase)
-{
-    char *content = "";
-    const apr_array_header_t*   elements;
-
-
-    /* Write the session data into a string */
-
-    elements = apr_table_elts(session_data);
-    if( elements->nelts > 0 )
-    {
-        const apr_array_header_t* elements;
-        const apr_table_entry_t*  entry;
-        int   i;
-
-        elements = apr_table_elts(session_data);
-        entry = (const apr_table_entry_t*) elements->elts;
-
-        /*
-         * Iterate through each key/value pair and add to the combined string.
-         * Note that we url encode the values so we can use a separator
-         * without worring about the separator value appearing in the data.
-         * Note that this is an inefficient algorithm.
-         */
-        for( i = 0; i < elements->nelts; ++i )
-        {
-            content = apr_pstrcat(r->pool, content, "&",
-                url_encode(
-                    r->pool, entry[i].key), "|",
-                    url_encode(r->pool, entry[i].val), NULL);
-        }
-
-
-        ++content; /* Discard the first '&' */
-
-#ifdef USE_CRYPTO
-
-        /* Encrypt the session data */
-
-        if (1) {
-            int rv;
-            unsigned char* packet = NULL;
-            apr_size_t len;
-
-            /* Encrypt the data - this produces binary */
-
-            rv = encrypt_block(content, strlen(content), passphrase, &packet, &len, r);
-            if (rv != APR_SUCCESS) return "";
-
-            /* Now base64 encode it */
-
-            content = apr_palloc(r->pool, apr_base64_encode_len(len) + 1);
-            apr_base64_encode(content, (const char *) packet, len);
-        }
-#endif
-    }
-
-    return content;
-}
-
-
-
-/**
- * Reads an encrypted session cookie into a session data table.
- * @param r a pointer to the request structure for the
- *          currently active request.
- * @param cookie the cookie value (the encrypted session data)
- * @param session_data a table into which all the session data
- *          will be placed.
- * @return APR_SUCCESS on success.
- */
-apr_status_t read_urs_encrypted_cookie(request_rec *r, const char* cookie, apr_table_t* session_data, const char* passphrase )
-{
-    char *p;
-    char *e, *s;
-
-#ifdef USE_CRYPTO
-
-    /* Decrypt the packet */
-
-    if (1) {
-        int rv;
-        unsigned char *decrypted = NULL;
-        unsigned char *packet = NULL;
-        apr_size_t len, decryptedLen;
-
-        /* Base64 decode the data first */
-
-        packet = apr_palloc(r->pool, apr_base64_decode_len(cookie));
-        len = apr_base64_decode(packet, cookie);
-
-        /* Now decrypt it */
-
-        rv = decrypt_block(packet, len, passphrase, &decrypted, &decryptedLen, r);
-        if (rv != APR_SUCCESS) return rv;
-        cookie = decrypted;
-    }
-#endif
-
-    p = apr_pstrdup(r->pool, cookie);
-
-    do
-    {
-        e = strchr(p, '&');
-        if (e) *e = '\0';
-
-        s = strchr(p, '|');
-        if (s == NULL) return APR_EGENERAL;
-        *s = '\0';
-
-        apr_table_set(session_data, url_decode(r->connection->pool, p), url_decode(r->connection->pool, s+1));
-        p = e + 1;
-    } while(e);
-
-    return APR_SUCCESS;
-}
-
-
 
 /************************************
  * Static (internal) methods
  ************************************/
 
-
 /**
-* Support method used to iterate through a table and output
-* key/value pairs.
-* @param fd descriptor of file to write session data to
-* @param key the name of the session data key
-* @param value the session data value
-* @return 1 (as required)
-*/
-static int write_urs_session_pairs(void *fd, const char* key, const char* value )
+ * Iterator method used to write a table key/value pair into a data packet.
+ * @param vdata pointer to the data buffer
+ * @param key the name of the session data key
+ * @param value the session data value
+ * @return 1 (as required)
+ */
+static int write_session_pair(void *vdata, const char* key, const char* value )
 {
-    apr_file_printf(fd, "%s%c%s%c", key, 0, value, 0);
+    session_packet* data = vdata;
+    int lk = strlen(key);
+    int lv = strlen(value);
+
+    /* Check to see if we need to resize the buffer */
+
+    if ((data->len +lk + lv + 2) > data->size ) {
+        unsigned char* p = data->buffer;
+        data->size += lk + lv + 2048;
+        data->buffer = apr_pcalloc(data->pool, data->size);
+        memcpy(data->buffer, p, data->len);
+    }
+
+    /* Copy the key and value into the buffer */
+
+    strcpy((char*) data->buffer + data->len, key);
+    data->len += lk + 1;
+
+    strcpy((char*) data->buffer + data->len, value);
+    data->len += lv + 1;
 
     return 1;
 }

@@ -21,12 +21,4 @@ To build and install, use apxs in the source directory:
 
 > apxs -i -c -n mod_auth_urs mod_auth_urs.c mod_auth_urs_cfg.c  \
   mod_auth_urs_session.c mod_auth_urs_ssl.c mod_auth_urs_http.c \
-  mod_auth_urs_json.c
-
-If you wish to use encrypted session cookies, then use the following
-command to build and install:
-
-> apxs -i -c -D USE_CRYPTO -n mod_auth_urs mod_auth_urs.c mod_auth_urs_cfg.c \
-  mod_auth_urs_session.c mod_auth_urs_ssl.c mod_auth_urs_http.c \
   mod_auth_urs_json.c mod_auth_urs_crypto.c
-
