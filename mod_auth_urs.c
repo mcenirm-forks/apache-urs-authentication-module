@@ -102,7 +102,8 @@ int auth_urs_post_read_request_redirect(request_rec *r)
     int             status;
     apr_uri_t       url;
 
-    const char*           p;
+    const char*     hostname = r->hostname ? r->hostname : r->server->server_hostname;
+    const char*     p;
 
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
 
@@ -113,15 +114,15 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * request. If found, we must handle it, otherwise we decline and allow
      * someone else to do so.
      */
-    p = strchr(r->hostname, ':');
+    p = strchr(hostname, ':');
     if( p == NULL ) {
-        p = apr_pstrcat(r->pool, r->hostname, ":", r->uri, NULL);
+        p = apr_pstrcat(r->pool, hostname, ":", r->uri, NULL);
     }
     else {
         /* Strip out the port from the hostname */
 
         p = apr_pstrcat(r->pool,
-            apr_pstrndup(r->pool, r->hostname, (p - r->hostname + 1)),
+            apr_pstrndup(r->pool, hostname, (p - hostname + 1)),
             r->uri, NULL);
     }
 
@@ -627,6 +628,7 @@ int auth_urs_check_user_id(request_rec *r)
         char*  buffer;
         int    buflen;
         const char* host;
+
         apr_uri_t*  redirect_url;
 
 
@@ -818,16 +820,16 @@ int auth_urs_check_user_id(request_rec *r)
          */
         /* First, look up the redirect URL for the request hostname */
 
-        host = r->hostname;
+        host = r->hostname ? r->hostname : r->server->server_hostname;
         if( strchr(host, ':') != NULL ) {
-            host = apr_pstrndup(r->pool, r->hostname, strchr(host, ':') - r->hostname);
+            host = apr_pstrndup(r->pool, host, strchr(host, ':') - host);
         }
 
         redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
         if( redirect_url == NULL ) {
             ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
                 "UrsAuth: No redirect URL configured for host %s and path %s",
-                r->hostname, r->uri);
+                host, r->uri);
             return HTTP_BAD_REQUEST;
         }
 
@@ -995,18 +997,18 @@ static int token_exchange(request_rec *r, auth_urs_dir_config* dconf, const char
     sconf = ap_get_module_config(r->server->module_config, &auth_urs_module );
 
     /* Get the redirect URL for the request hostname */
-
-    host = r->hostname;
+    host = r->hostname ? r->hostname : r->server->server_hostname;
     if( strchr(host, ':') != NULL )
     {
-        host = apr_pstrndup(r->pool, r->hostname, strchr(host, ':') - r->hostname);
+        host = apr_pstrndup(r->pool, host, strchr(host, ':') -host);
     }
+
     redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
     if( redirect_url == NULL )
     {
         ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
             "UrsAuth: No redirect URL configured for host %s and path %s",
-            r->hostname, r->uri);
+            host, r->uri);
         return HTTP_BAD_REQUEST;
     }
 
