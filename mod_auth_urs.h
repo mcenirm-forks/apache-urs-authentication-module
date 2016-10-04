@@ -114,6 +114,13 @@ typedef struct auth_urs_dir_config_t
      */
     int         use_cookie_sessions;
 
+
+    /**
+     * Enables cookie storage of original URLs
+     */
+    int         use_cookie_url;
+    
+
     /**
      * The domain to be used for cookie configuration. This is generally only
      * useful for cookie based sessions to allow a single login across

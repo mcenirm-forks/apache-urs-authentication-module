@@ -385,6 +385,13 @@ const char* session_create_id(request_rec *r)
      * Fall back to using a generated UUID for the session name. We test
      * this by attempting to create the session file.
      */
+    if (conf->session_store_path == NULL) {
+        ap_log_rerror( APLOG_MARK, APLOG_ERR, 0, r,
+            "UrsAuth: No configured session storage path");
+
+        return APR_EGENERAL;
+    }
+
     offset = strlen(conf->session_store_path);
     session_file = apr_palloc(r->pool, offset + APR_UUID_FORMATTED_LENGTH + 10);
     strcpy(session_file,  conf->session_store_path );

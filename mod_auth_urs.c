@@ -40,6 +40,7 @@
 
 #include    "apr_base64.h"
 #include    "apr_strings.h"
+#include    "apr_uuid.h"
 #define APR_WANT_STRFUNC           /* for strcasecmp */
 #include    "apr_want.h"
 
@@ -115,16 +116,9 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      * someone else to do so.
      */
     p = strchr(hostname, ':');
-    if( p == NULL ) {
-        p = apr_pstrcat(r->pool, hostname, ":", r->uri, NULL);
-    }
-    else {
-        /* Strip out the port from the hostname */
+    if( p != NULL ) hostname = apr_pstrndup(r->pool, hostname, p - hostname);
+    p = apr_pstrcat(r->pool, hostname, ":", r->uri, NULL);
 
-        p = apr_pstrcat(r->pool,
-            apr_pstrndup(r->pool, hostname, (p - hostname + 1)),
-            r->uri, NULL);
-    }
 
     /* The authorization group name is used as the cookie name */
 
@@ -149,7 +143,25 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
         return HTTP_FORBIDDEN;
     }
-    state = http_url_decode(r->pool, state);
+    
+    
+    /*
+     * If we have a url cookie, extract it and use it if the state key matches. We also
+    * expire the cookie.
+     */
+    url_str = http_get_cookie(r, apr_pstrcat(r->pool, cookie_name, "_url", NULL));
+    if (url_str) {
+        state = http_url_decode(r->pool, state);
+        if (strstr(url_str, state) == url_str) {
+            state = url_str + strlen(state) + 1;
+
+            apr_table_addn(r->err_headers_out,
+                "Set-Cookie",
+                apr_pstrcat(r->pool,
+                    cookie_name, "_url=; Domain=", hostname,
+                    "; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Path=", r->uri, NULL) );
+        }
+    }
 
 
     /*
@@ -163,6 +175,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     url_str = apr_palloc(r->pool, strlen(state) + 1);
     apr_base64_decode(url_str, state);
+    ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r, "UrsAuth: Decoded URL is %s", url_str );
 
     if( apr_uri_parse(r->pool, url_str, &url) != APR_SUCCESS ) {
         return HTTP_BAD_REQUEST;
@@ -683,7 +696,7 @@ int auth_urs_check_user_id(request_rec *r)
                 if (dconf->cookie_domain != NULL) domain = dconf->cookie_domain;
 
                 r = r->main == NULL ? r : r->main;
-                apr_table_set(r->err_headers_out,
+                apr_table_addn(r->err_headers_out,
                     "Set-Cookie",
                     apr_pstrcat(r->pool,
                         dconf->authorization_group,
@@ -766,7 +779,7 @@ int auth_urs_check_user_id(request_rec *r)
              * when the browser restarts.
              */
             post_cookie = apr_pstrcat(r->pool, dconf->authorization_group, "_post=", post_cookie, "; Path=", r->uri, "; Max-Age=300", NULL);
-            apr_table_set(r->err_headers_out, "Set-Cookie",  post_cookie );
+            apr_table_addn(r->err_headers_out, "Set-Cookie",  post_cookie );
             ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Set post request cookie = %s", post_cookie );
         }
@@ -832,6 +845,39 @@ int auth_urs_check_user_id(request_rec *r)
                 host, r->uri);
             return HTTP_BAD_REQUEST;
         }
+
+
+        /*
+         * If we are storing the original URL in a cookie, do that now. The state query 
+         * parameter value is change to a randomly generated UID that is also stored 
+         * in the cookie.
+         */
+        if (dconf->use_cookie_url) {
+            /* Generate a uid. This will replace the original URL in the 'state' query parameter. */
+           
+            const char      suid[256];
+            const char*     url_cookie;
+            apr_uuid_t      uuid;
+
+            apr_uuid_get(&uuid);
+            apr_uuid_format(suid, &uuid);
+
+            /* Create the cookie string. This is configured to be returned only for the redirect url path */
+       
+            url_cookie = apr_pstrcat(r->pool,
+                    dconf->authorization_group, "_url=", suid, ":", buffer,
+                    "; Domain=", redirect_url->hostname,
+                    "; Path=", redirect_url->path,
+                    "; Max-Age=300", NULL);
+            buffer = apr_pstrdup(r->pool, suid);
+
+            /* Add the cookie. We use 'add' this time, just in case a 'post' cookie is being used */
+       
+            apr_table_addn(r->err_headers_out, "Set-Cookie",  url_cookie );
+            ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
+                "UrsAuth: Set url cookie = %s", url_cookie );
+        }
+
 
         /* Now construct the redirect URL */
 
@@ -920,7 +966,7 @@ int auth_urs_check_user_id(request_rec *r)
          * Make sure the POST cookie is expired so it cannot influence a
          * GET request to the same URL at a later point.
          */
-        apr_table_setn(r->err_headers_out,
+        apr_table_addn(r->err_headers_out,
             "Set-Cookie",
             apr_pstrcat(r->pool,
                 dconf->authorization_group,
@@ -1357,7 +1403,7 @@ int save_session(request_rec *r, auth_urs_dir_config *dconf, apr_table_t* sessio
     if (dconf->cookie_domain) {
         cookie = apr_pstrcat(r->pool, cookie, "; Domain=", dconf->cookie_domain, NULL);
     }
-    apr_table_set(r->err_headers_out, "Set-Cookie", cookie);
+    apr_table_addn(r->err_headers_out, "Set-Cookie", cookie);
 
     ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                 "UrsAuth: Saved session: %s", cookie);

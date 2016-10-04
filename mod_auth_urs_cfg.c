@@ -412,6 +412,9 @@ static void *merge_auth_urs_dir_config(apr_pool_t *p, void* b, void* a)
     i = (add->use_cookie_sessions != 0) ? add->use_cookie_sessions : base->use_cookie_sessions;
     conf->use_cookie_sessions = i;
 
+    i = (add->use_cookie_url != 0) ? add->use_cookie_url : base->use_cookie_url;
+    conf->use_cookie_url = i;
+
     /*
      * Copy the redirection uri map
      */
@@ -571,6 +574,47 @@ static const char *set_cookie_sessions(cmd_parms *cmd, void *config, const char 
     else
         ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
             "UrsAuth: Cookie sessions disabled" );
+
+    return NULL;
+}
+
+
+/**
+ * Callback used by apache to enable or disable the cookie url flag.
+ *
+ * @param cmd pointer to the the command/directive structure
+ * @para config our directory level configuration structure
+ * @param arg our directive parameters
+ * @return NULL on success, an error essage otherwise
+ */
+static const char *set_cookie_url(cmd_parms *cmd, void *config, const char *arg)
+{
+    auth_urs_dir_config* conf = config;
+
+    /*
+    * Convert to a number and verify.
+    */
+    if( strcasecmp(arg, "true") == 0 || strcasecmp(arg, "yes") == 0 )
+    {
+        conf->use_cookie_url = 1;
+    }
+    else if( strcasecmp(arg, "false") == 0 || strcasecmp(arg, "no") == 0 )
+    {
+        conf->use_cookie_url = 0;
+    }
+    else
+    {
+        return apr_psprintf(cmd->pool,
+            "Invalid configuration for UrsEnableCookieURL %s",
+            arg);
+    }
+
+    if (conf->use_cookie_url)
+        ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+            "UrsAuth: Cookie URL enabled" );
+    else
+        ap_log_error( APLOG_MARK, APLOG_INFO, 0, cmd->server,
+            "UrsAuth: Cookie URL disabled" );
 
     return NULL;
 }
@@ -1158,6 +1202,12 @@ static const command_rec auth_urs_cmds[] =
                     NULL,
                     OR_AUTHCFG,
                     "Enable cookie based sessions" ),
+
+    AP_INIT_TAKE1( "UrsEnableCookieURL",
+                    set_cookie_url,
+                    NULL,
+                    OR_AUTHCFG,
+                    "Enable cookie storage of URLs" ),
 
     AP_INIT_TAKE1( "UrsClientId",
                     set_client_id,
