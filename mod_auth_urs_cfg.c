@@ -57,9 +57,10 @@ static void *create_auth_urs_svr_config(apr_pool_t *p, server_rec *s)
 
     /* Set up default values for URS */
 
+/*
     conf->urs_auth_path = "/oauth/authorize/";
     conf->urs_token_path = "/oauth/token";
-
+*/
     return conf;
 }
 

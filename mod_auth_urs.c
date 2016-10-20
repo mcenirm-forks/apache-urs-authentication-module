@@ -151,6 +151,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
      */
     url_str = http_get_cookie(r, apr_pstrcat(r->pool, cookie_name, "_url", NULL));
     if (url_str) {
+        ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r, "UrsAuth: Found cookie %s_url: %s", cookie_name, url_str );
         state = http_url_decode(r->pool, state);
         if (strstr(url_str, state) == url_str) {
             state = url_str + strlen(state) + 1;
@@ -158,8 +159,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
             apr_table_addn(r->err_headers_out,
                 "Set-Cookie",
                 apr_pstrcat(r->pool,
-                    cookie_name, "_url=; Domain=", hostname,
-                    "; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Path=", r->uri, NULL) );
+                    cookie_name, "_url=; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Path=/", NULL) );
         }
     }
 
@@ -189,7 +189,7 @@ int auth_urs_post_read_request_redirect(request_rec *r)
 
 
     /*
-     * We do not need to run the request - the above is sufficent to
+     * We do not need to run the request - the above is sufficient to
      * do all the necessary setup to get the appropriate directory
      * configuration for the request.
      */
@@ -692,16 +692,14 @@ int auth_urs_check_user_id(request_rec *r)
              * it will go on to establish a new session.
              */
             if( expire_cookie ) {
-                const char* domain = "/";
-                if (dconf->cookie_domain != NULL) domain = dconf->cookie_domain;
+                const char* del_cookie = apr_pstrcat(r->pool,
+                    dconf->authorization_group, "=; Path=/; Expires=Sat, 01 Jan 2000 00:00:00 GMT", NULL);
+                    
+                if (dconf->cookie_domain != NULL) 
+                    del_cookie = apr_pstrcat(r->pool, del_cookie, "; Domain=", dconf->cookie_domain, NULL);
 
                 r = r->main == NULL ? r : r->main;
-                apr_table_addn(r->err_headers_out,
-                    "Set-Cookie",
-                    apr_pstrcat(r->pool,
-                        dconf->authorization_group,
-                        "=; Expires=Sat, 01 Jan 2000 00:00:00 GMT; Domain=",
-                        domain, NULL) );
+                apr_table_addn(r->err_headers_out, "Set-Cookie", del_cookie);
                 ap_log_rerror( APLOG_MARK, APLOG_DEBUG, 0, r,
                     "UrsAuth: Expired cookie %s", dconf->authorization_group );
             }
@@ -799,15 +797,18 @@ int auth_urs_check_user_id(request_rec *r)
          * First reconstruct the original URL. It is actually not very easy to
          * reconstruct the original request in it's entirety!
          */
+        host = r->hostname ? r->hostname : r->server->server_hostname;
+        if( strchr(host, ':') != NULL ) {
+            host = apr_pstrndup(r->pool, host, strchr(host, ':') - host);
+        }
+
         if( ap_is_default_port(ap_get_server_port(r), r) ) {
             url = apr_psprintf(r->pool, "%s://%s%s",
-                ap_http_scheme(r), ap_get_server_name(r),
-                r->unparsed_uri);
+                ap_http_scheme(r), host, r->unparsed_uri);
         }
         else {
             url = apr_psprintf(r->pool, "%s://%s:%d%s",
-                ap_http_scheme(r), ap_get_server_name(r),
-                ap_get_server_port(r), r->unparsed_uri);
+                ap_http_scheme(r), host, ap_get_server_port(r), r->unparsed_uri);
         }
 
 
@@ -831,12 +832,8 @@ int auth_urs_check_user_id(request_rec *r)
          * We must url encode the query parameters (even the base64 encoded URL, which can
          * contain a '/').
          */
-        /* First, look up the redirect URL for the request hostname */
 
-        host = r->hostname ? r->hostname : r->server->server_hostname;
-        if( strchr(host, ':') != NULL ) {
-            host = apr_pstrndup(r->pool, host, strchr(host, ':') - host);
-        }
+        /* First, look up the redirect URL for the request hostname */
 
         redirect_url = (apr_uri_t*) apr_table_get(dconf->redirect_urls, host);
         if( redirect_url == NULL ) {
@@ -865,10 +862,7 @@ int auth_urs_check_user_id(request_rec *r)
             /* Create the cookie string. This is configured to be returned only for the redirect url path */
        
             url_cookie = apr_pstrcat(r->pool,
-                    dconf->authorization_group, "_url=", suid, ":", buffer,
-                    "; Domain=", redirect_url->hostname,
-                    "; Path=", redirect_url->path,
-                    "; Max-Age=300", NULL);
+                    dconf->authorization_group, "_url=", suid, ":", buffer, "; Path=/; Max-Age=300", NULL);
             buffer = apr_pstrdup(r->pool, suid);
 
             /* Add the cookie. We use 'add' this time, just in case a 'post' cookie is being used */
