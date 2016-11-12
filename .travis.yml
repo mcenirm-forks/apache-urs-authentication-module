@@ -1,0 +1,48 @@
+sudo: required
+services:
+  - docker
+
+cache: ccache
+language: C
+
+env:
+  matrix:
+    - OS=centos DIST=6
+    - OS=centos DIST=7
+    #- OS=fedora DIST=23
+    #- OS=fedora DIST=24
+    #- OS=ubuntu DIST=trusty
+    #- OS=ubuntu DIST=precise
+    #- OS=ubuntu DIST=xenial
+    #- OS=ubuntu DIST=yakkety
+    #- OS=debian DIST=jessie
+    #- OS=debian DIST=wheezy
+    #- OS=debian DIST=stretch
+
+script:
+  - git submodule update --init --recursive
+  - git describe --long
+
+before_deploy:
+  # Build packages using PackPack
+  - git clone https://github.com/packpack/packpack.git packpack
+  - packpack/packpack
+
+deploy:
+  # Deploy packages to PackageCloud
+  #- provider: packagecloud
+  #  username: ${PACKAGECLOUD_USER}
+  #  repository: ${PACKAGECLOUD_REPO}
+  #  token: ${PACKAGECLOUD_TOKEN}
+  #  dist: ${OS}/${DIST}
+  #  package_glob: build/*.{deb,rpm}
+  #  skip_cleanup: true
+  #  on:
+  #    branch: master
+  #    condition: -n "${OS}" && -n "${DIST}" && -n "${PACKAGECLOUD_TOKEN}"
+  # Deploy to github releases
+  - provider: releases
+    api_key: ${GITHUB_API_KEY}
+    file: build/*.{deb,rpm}
+    on:
+      branch: feature/rpm/packpack
