@@ -1,20 +1,12 @@
 Name:           mod_auth_urs
-Version:        0.1
-Release:        20150427git1505c09.1%{?dist}
+Version:        1.1
+Release:        1%{?dist}
 Summary:        EOSDIS User Registration System module for Apache httpd
 
 Group:          System Environment/Daemons
 License:        Apache
 URL:            https://git.earthdata.nasa.gov/projects/AAM/repos/apache-urs-authentication-module/browse
-Source0:        LICENSE
-Source1:        mod_auth_urs.h
-Source2:        mod_auth_urs.c
-Source3:        mod_auth_urs_cfg.c
-Source4:        mod_auth_urs_session.c
-Source5:        mod_auth_urs_ssl.c
-Source6:        mod_auth_urs_http.c
-Source7:        mod_auth_urs_json.c
-Source8:        README
+Source0:        %{name}-%{version}.tar.xz
 
 BuildRequires:  httpd-devel openssl-devel
 Requires:       httpd-mmn = %(cat %{_includedir}/httpd/.mmn || echo missing)
@@ -31,9 +23,7 @@ resource.
 
 
 %prep
-cp -p %{SOURCE0} %{SOURCE1} %{SOURCE2} %{SOURCE3} \
-  %{SOURCE4} %{SOURCE5} %{SOURCE6} %{SOURCE7} %{SOURCE8} \
-  .
+%setup -q
 
 
 %build
