@@ -1,3 +1,7 @@
+%global _enable_debug_package 0
+%global debug_package %{nil}
+%global __os_install_post /usr/lib/rpm/brp-compress %{nil}
+
 Name:           mod_auth_urs
 Version:        1.1
 Release:        1%{?dist}
@@ -9,7 +13,7 @@ URL:            https://git.earthdata.nasa.gov/projects/AAM/repos/apache-urs-aut
 Source0:        %{name}-%{version}.tar.xz
 
 BuildRequires:  httpd-devel openssl-devel
-Requires:       httpd-mmn = %(cat %{_includedir}/httpd/.mmn || echo missing)
+Requires:       httpd-mmn = 20051115
 
 %description
 The Apache User Registration Service authentication module is
